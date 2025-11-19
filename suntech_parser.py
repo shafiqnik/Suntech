@@ -184,9 +184,9 @@ class SuntechParser:
         try:
             idx = 0
             
-            # Check minimum length
-            if len(data) < 40:
-                raise ValueError(f"BDA message too short: {len(data)} bytes (expected at least 40)")
+            # Check minimum length (header + basic fields = ~15 bytes minimum)
+            if len(data) < 15:
+                raise ValueError(f"BDA message too short: {len(data)} bytes (expected at least 15)")
             
             # Header and Basic ID
             hdr = struct.unpack('>B', data[idx:idx+1])[0]
@@ -203,24 +203,44 @@ class SuntechParser:
             idx += 3
             
             # BLE Scan Metadata
+            if idx + 1 > len(data):
+                raise ValueError("BDA message incomplete: missing BLE scan status")
             ble_scan_status = struct.unpack('>B', data[idx:idx+1])[0]
             idx += 1
+            
+            if idx + 1 > len(data):
+                raise ValueError("BDA message incomplete: missing total_no")
             total_no = struct.unpack('>B', data[idx:idx+1])[0]
             idx += 1
+            
+            if idx + 1 > len(data):
+                raise ValueError("BDA message incomplete: missing curr_no")
             curr_no = struct.unpack('>B', data[idx:idx+1])[0]
             idx += 1
+            
+            if idx + 2 > len(data):
+                raise ValueError("BDA message incomplete: missing ble_sen_cnt")
             ble_sen_cnt = struct.unpack('>H', data[idx:idx+2])[0]
             idx += 2
             
-            # Scan timestamp and location
-            scan_date = SuntechParser.parse_suntech_date(data[idx:idx+3])
-            idx += 3
-            scan_time = SuntechParser.parse_suntech_time(data[idx:idx+3])
-            idx += 3
-            scan_lat = SuntechParser.parse_gps_coord(data[idx:idx+4])
-            idx += 4
-            scan_lon = SuntechParser.parse_gps_coord(data[idx:idx+4])
-            idx += 4
+            # Scan timestamp and location (may be missing in very short messages)
+            scan_date = None
+            scan_time = None
+            scan_lat = None
+            scan_lon = None
+            
+            if idx + 3 <= len(data):
+                scan_date = SuntechParser.parse_suntech_date(data[idx:idx+3])
+                idx += 3
+            if idx + 3 <= len(data):
+                scan_time = SuntechParser.parse_suntech_time(data[idx:idx+3])
+                idx += 3
+            if idx + 4 <= len(data):
+                scan_lat = SuntechParser.parse_gps_coord(data[idx:idx+4])
+                idx += 4
+            if idx + 4 <= len(data):
+                scan_lon = SuntechParser.parse_gps_coord(data[idx:idx+4])
+                idx += 4
             
             # Parse BLE Sensor Data
             # Structure for each sensor:
@@ -304,11 +324,11 @@ class SuntechParser:
                 "total_reports_expected": total_no,
                 "current_report_number": curr_no,
                 "scanned_sensor_count": ble_sen_cnt,
-                "timestamp_gps": f"{scan_date} {scan_time}",
+                "timestamp_gps": f"{scan_date} {scan_time}" if scan_date and scan_time else "N/A",
                 "location_scan_start": {
-                    "latitude": f"{scan_lat:.6f}",
-                    "longitude": f"{scan_lon:.6f}",
-                },
+                    "latitude": f"{scan_lat:.6f}" if scan_lat is not None else "N/A",
+                    "longitude": f"{scan_lon:.6f}" if scan_lon is not None else "N/A",
+                } if scan_lat is not None and scan_lon is not None else None,
                 "sensors": sensors,
                 "sensors_parsed": len(sensors),
                 "has_target_mac": has_target_mac,
@@ -335,13 +355,32 @@ class SuntechParser:
         header_byte = data[0]
         
         if header_byte == 0x81:
+            # STT (Status Report) - No ACK required
             return SuntechParser.parse_stt_report(data)
+        elif header_byte == 0x82:
+            # STT variant (Status Report) - Possibly with ACK or different format
+            # Try parsing as STT first, if it fails, return as unknown
+            try:
+                return SuntechParser.parse_stt_report(data)
+            except Exception as e:
+                return {
+                    "timestamp": datetime.now().isoformat(),
+                    "report_type": "STT Variant (Header 0x82)",
+                    "error": f"Parse error: {str(e)}",
+                    "raw_data": data.hex(),
+                    "data_length": len(data)
+                }
         elif header_byte == 0xAA:
+            # BDA/SNB (BLE Sensor Data Report) - No ACK required
+            return SuntechParser.parse_bda_report(data)
+        elif header_byte == 0xBA:
+            # BDA/SNB (BLE Sensor Data Report) - ACK required
             return SuntechParser.parse_bda_report(data)
         else:
             return {
                 "timestamp": datetime.now().isoformat(),
                 "error": f"Unknown Header: 0x{header_byte:02X}",
-                "raw_data": data.hex()
+                "raw_data": data.hex(),
+                "data_length": len(data)
             }
 
