@@ -12,21 +12,65 @@ class SuntechParser:
     
     @staticmethod
     def bcd_to_dec(bcd_bytes: bytes) -> int:
-        """Converts BCD bytes to decimal integer."""
-        return int("".join(f'{b:02X}' for b in bcd_bytes))
+        """Converts BCD bytes to decimal integer.
+        BCD format: each byte contains two decimal digits (each 4 bits).
+        Example: 0x19 = 0001 1001 = 1 and 9 = 19 decimal
+        """
+        result = 0
+        for byte in bcd_bytes:
+            # Extract high and low nibbles (4 bits each)
+            high_nibble = (byte >> 4) & 0x0F
+            low_nibble = byte & 0x0F
+            
+            # Validate BCD (each nibble must be 0-9)
+            if high_nibble > 9 or low_nibble > 9:
+                # Invalid BCD, try hex interpretation as fallback
+                # This handles cases where data might not be pure BCD
+                return int("".join(f'{b:02X}' for b in bcd_bytes), 16)
+            
+            # Combine: high_nibble * 10 + low_nibble
+            result = result * 100 + (high_nibble * 10 + low_nibble)
+        
+        return result
     
     @staticmethod
     def parse_suntech_date(date_bytes: bytes) -> str:
         """Parses YY MM DD BCD to YYYYMMDD string."""
-        bcd_str = "".join(f'{b:02X}' for b in date_bytes)
-        year = 2000 + int(bcd_str[:2])
-        return f"{year}{bcd_str[2:4]}{bcd_str[4:]}"
+        try:
+            # Parse BCD: each byte is two digits
+            year_byte = date_bytes[0] if len(date_bytes) > 0 else 0
+            month_byte = date_bytes[1] if len(date_bytes) > 1 else 0
+            day_byte = date_bytes[2] if len(date_bytes) > 2 else 0
+            
+            year = 2000 + ((year_byte >> 4) & 0x0F) * 10 + (year_byte & 0x0F)
+            month = ((month_byte >> 4) & 0x0F) * 10 + (month_byte & 0x0F)
+            day = ((day_byte >> 4) & 0x0F) * 10 + (day_byte & 0x0F)
+            
+            return f"{year:04d}{month:02d}{day:02d}"
+        except (IndexError, ValueError) as e:
+            # Fallback to hex representation
+            bcd_str = "".join(f'{b:02X}' for b in date_bytes)
+            year = 2000 + int(bcd_str[:2], 16) if len(bcd_str) >= 2 else 2000
+            return f"{year}{bcd_str[2:4] if len(bcd_str) >= 4 else '00'}{bcd_str[4:6] if len(bcd_str) >= 6 else '00'}"
     
     @staticmethod
     def parse_suntech_time(time_bytes: bytes) -> str:
         """Parses HH MM SS BCD to HH:MM:SS string."""
-        bcd_str = "".join(f'{b:02X}' for b in time_bytes)
-        return f"{bcd_str[:2]}:{bcd_str[2:4]}:{bcd_str[4:]}"
+        try:
+            # Parse BCD: each byte is two digits
+            hour_byte = time_bytes[0] if len(time_bytes) > 0 else 0
+            minute_byte = time_bytes[1] if len(time_bytes) > 1 else 0
+            second_byte = time_bytes[2] if len(time_bytes) > 2 else 0
+            
+            hour = ((hour_byte >> 4) & 0x0F) * 10 + (hour_byte & 0x0F)
+            minute = ((minute_byte >> 4) & 0x0F) * 10 + (minute_byte & 0x0F)
+            second = ((second_byte >> 4) & 0x0F) * 10 + (second_byte & 0x0F)
+            
+            return f"{hour:02d}:{minute:02d}:{second:02d}"
+        except (IndexError, ValueError) as e:
+            # Fallback to hex representation
+            bcd_str = "".join(f'{b:02X}' for b in time_bytes)
+            return f"{bcd_str[:2] if len(bcd_str) >= 2 else '00'}:{bcd_str[2:4] if len(bcd_str) >= 4 else '00'}:{bcd_str[4:6] if len(bcd_str) >= 6 else '00'}"
     
     @staticmethod
     def parse_gps_coord(coord_bytes: bytes) -> float:
@@ -37,51 +81,56 @@ class SuntechParser:
     @staticmethod
     def parse_stt_report(data: bytes) -> Dict[str, Any]:
         """Parse STT (Status Report) message with header 0x81"""
-        results = {}
-        
-        # 1. Header and Basic ID (1 + 2 + 5 + 3 + 1 + 3 + 1 = 16 bytes)
-        hdr = struct.unpack('>B', data[0:1])[0]
-        pkt_len = struct.unpack('>H', data[1:3])[0]
-        dev_id = SuntechParser.bcd_to_dec(data[3:8])
-        report_map = struct.unpack('>I', b'\x00' + data[8:11])[0]
-        model = struct.unpack('>B', data[11:12])[0]
-        # SW_VER structure: 3 bytes BCD
-        sw_ver_str = "".join(f'{b:02X}' for b in data[12:15])
-        
-        # 2. Time/Date & Cellular (15 to 33 bytes)
-        msg_type = struct.unpack('>B', data[15:16])[0]
-        date = SuntechParser.parse_suntech_date(data[16:19])
-        time = SuntechParser.parse_suntech_time(data[19:22])
-        cell_id = struct.unpack('>I', data[22:26])[0]
-        mcc = SuntechParser.bcd_to_dec(data[26:28])
-        mnc = SuntechParser.bcd_to_dec(data[28:30])
-        lac = struct.unpack('>H', data[30:32])[0]
-        rx_lvl = struct.unpack('>B', data[32:33])[0]
-        
-        # 3. GPS Data (33 to 45 bytes)
-        lat = SuntechParser.parse_gps_coord(data[33:37])
-        lon = SuntechParser.parse_gps_coord(data[37:41])
-        spd = struct.unpack('>H', data[41:43])[0] / 100.0  # /100 for km/h
-        crs = struct.unpack('>H', data[43:45])[0] / 100.0  # /100 for degrees
-        satt = struct.unpack('>B', data[45:46])[0]
-        fix = struct.unpack('>B', data[46:47])[0]
-        
-        # 4. Status (47 to 52 bytes)
-        in_state = struct.unpack('>B', data[47:48])[0]
-        out_state = struct.unpack('>B', data[48:49])[0]
-        mode = struct.unpack('>B', data[49:50])[0]
-        rpt_type = struct.unpack('>B', data[50:51])[0]
-        msg_num = struct.unpack('>H', data[51:53])[0]
-        
-        # 5. Final fields and mapping start (53 onwards)
-        reserved1 = struct.unpack('>B', data[53:54])[0]
-        assign_map = struct.unpack('>I', data[54:58])[0]
-        
-        # Create timestamp
-        timestamp = datetime.now().isoformat()
-        
-        results = {
-            "timestamp": timestamp,
+        try:
+            results = {}
+            
+            # Check minimum length
+            if len(data) < 58:
+                raise ValueError(f"STT message too short: {len(data)} bytes (expected at least 58)")
+            
+            # 1. Header and Basic ID (1 + 2 + 5 + 3 + 1 + 3 + 1 = 16 bytes)
+            hdr = struct.unpack('>B', data[0:1])[0]
+            pkt_len = struct.unpack('>H', data[1:3])[0]
+            dev_id = SuntechParser.bcd_to_dec(data[3:8])
+            report_map = struct.unpack('>I', b'\x00' + data[8:11])[0]
+            model = struct.unpack('>B', data[11:12])[0]
+            # SW_VER structure: 3 bytes BCD
+            sw_ver_str = "".join(f'{b:02X}' for b in data[12:15])
+            
+            # 2. Time/Date & Cellular (15 to 33 bytes)
+            msg_type = struct.unpack('>B', data[15:16])[0]
+            date = SuntechParser.parse_suntech_date(data[16:19])
+            time = SuntechParser.parse_suntech_time(data[19:22])
+            cell_id = struct.unpack('>I', data[22:26])[0]
+            mcc = SuntechParser.bcd_to_dec(data[26:28])
+            mnc = SuntechParser.bcd_to_dec(data[28:30])
+            lac = struct.unpack('>H', data[30:32])[0]
+            rx_lvl = struct.unpack('>B', data[32:33])[0]
+            
+            # 3. GPS Data (33 to 45 bytes)
+            lat = SuntechParser.parse_gps_coord(data[33:37])
+            lon = SuntechParser.parse_gps_coord(data[37:41])
+            spd = struct.unpack('>H', data[41:43])[0] / 100.0  # /100 for km/h
+            crs = struct.unpack('>H', data[43:45])[0] / 100.0  # /100 for degrees
+            satt = struct.unpack('>B', data[45:46])[0]
+            fix = struct.unpack('>B', data[46:47])[0]
+            
+            # 4. Status (47 to 52 bytes)
+            in_state = struct.unpack('>B', data[47:48])[0]
+            out_state = struct.unpack('>B', data[48:49])[0]
+            mode = struct.unpack('>B', data[49:50])[0]
+            rpt_type = struct.unpack('>B', data[50:51])[0]
+            msg_num = struct.unpack('>H', data[51:53])[0]
+            
+            # 5. Final fields and mapping start (53 onwards)
+            reserved1 = struct.unpack('>B', data[53:54])[0]
+            assign_map = struct.unpack('>I', data[54:58])[0]
+            
+            # Create timestamp
+            timestamp = datetime.now().isoformat()
+            
+            results = {
+                "timestamp": timestamp,
             "report_type": "STT (Status Report)",
             "header": f"0x{hdr:02X} (No ACK required)",
             "device_id_esn": dev_id,
@@ -112,54 +161,67 @@ class SuntechParser:
                 "report_type_id": rpt_type,
                 "message_number": msg_num,
             },
-            "assign_map_custom_headers": f"0x{assign_map:08X}",
-            "raw_trailing_data_length": len(data) - 58,
-        }
-        return results
+                "assign_map_custom_headers": f"0x{assign_map:08X}",
+                "raw_trailing_data_length": len(data) - 58,
+            }
+            return results
+        except Exception as e:
+            # Return error with context
+            return {
+                "timestamp": datetime.now().isoformat(),
+                "error": f"STT parse error: {str(e)}",
+                "raw_data": data.hex(),
+                "data_length": len(data)
+            }
     
     @staticmethod
     def parse_bda_report(data: bytes) -> Dict[str, Any]:
         """Parse BDA/SNB (BLE Sensor Data Report) message with header 0xAA"""
-        idx = 0
-        
-        # Header and Basic ID
-        hdr = struct.unpack('>B', data[idx:idx+1])[0]
-        idx += 1
-        pkt_len = struct.unpack('>H', data[idx:idx+2])[0]
-        idx += 2
-        dev_id = SuntechParser.bcd_to_dec(data[idx:idx+5])
-        idx += 5
-        report_map = struct.unpack('>I', b'\x00' + data[idx:idx+3])[0]
-        idx += 3
-        model = struct.unpack('>B', data[idx:idx+1])[0]
-        idx += 1
-        sw_ver_str = "".join(f'{b:02X}' for b in data[idx:idx+3])
-        idx += 3
-        
-        # BLE Scan Metadata
-        ble_scan_status = struct.unpack('>B', data[idx:idx+1])[0]
-        idx += 1
-        total_no = struct.unpack('>B', data[idx:idx+1])[0]
-        idx += 1
-        curr_no = struct.unpack('>B', data[idx:idx+1])[0]
-        idx += 1
-        ble_sen_cnt = struct.unpack('>H', data[idx:idx+2])[0]
-        idx += 2
-        
-        # Scan timestamp and location
-        scan_date = SuntechParser.parse_suntech_date(data[idx:idx+3])
-        idx += 3
-        scan_time = SuntechParser.parse_suntech_time(data[idx:idx+3])
-        idx += 3
-        scan_lat = SuntechParser.parse_gps_coord(data[idx:idx+4])
-        idx += 4
-        scan_lon = SuntechParser.parse_gps_coord(data[idx:idx+4])
-        idx += 4
-        
-        # Create timestamp
-        timestamp = datetime.now().isoformat()
-        
-        results = {
+        try:
+            idx = 0
+            
+            # Check minimum length
+            if len(data) < 40:
+                raise ValueError(f"BDA message too short: {len(data)} bytes (expected at least 40)")
+            
+            # Header and Basic ID
+            hdr = struct.unpack('>B', data[idx:idx+1])[0]
+            idx += 1
+            pkt_len = struct.unpack('>H', data[idx:idx+2])[0]
+            idx += 2
+            dev_id = SuntechParser.bcd_to_dec(data[idx:idx+5])
+            idx += 5
+            report_map = struct.unpack('>I', b'\x00' + data[idx:idx+3])[0]
+            idx += 3
+            model = struct.unpack('>B', data[idx:idx+1])[0]
+            idx += 1
+            sw_ver_str = "".join(f'{b:02X}' for b in data[idx:idx+3])
+            idx += 3
+            
+            # BLE Scan Metadata
+            ble_scan_status = struct.unpack('>B', data[idx:idx+1])[0]
+            idx += 1
+            total_no = struct.unpack('>B', data[idx:idx+1])[0]
+            idx += 1
+            curr_no = struct.unpack('>B', data[idx:idx+1])[0]
+            idx += 1
+            ble_sen_cnt = struct.unpack('>H', data[idx:idx+2])[0]
+            idx += 2
+            
+            # Scan timestamp and location
+            scan_date = SuntechParser.parse_suntech_date(data[idx:idx+3])
+            idx += 3
+            scan_time = SuntechParser.parse_suntech_time(data[idx:idx+3])
+            idx += 3
+            scan_lat = SuntechParser.parse_gps_coord(data[idx:idx+4])
+            idx += 4
+            scan_lon = SuntechParser.parse_gps_coord(data[idx:idx+4])
+            idx += 4
+            
+            # Create timestamp
+            timestamp = datetime.now().isoformat()
+            
+            results = {
             "timestamp": timestamp,
             "report_type": "BDA/SNB (BLE Sensor Data Report)",
             "header": f"0x{hdr:02X} (No ACK required)",
@@ -176,11 +238,19 @@ class SuntechParser:
                 "latitude": f"{scan_lat:.6f}",
                 "longitude": f"{scan_lon:.6f}",
             },
-            "raw_data_start_index": idx,
-            "remaining_payload_bytes": len(data) - idx
-        }
-        
-        return results
+                "raw_data_start_index": idx,
+                "remaining_payload_bytes": len(data) - idx
+            }
+            
+            return results
+        except Exception as e:
+            # Return error with context
+            return {
+                "timestamp": datetime.now().isoformat(),
+                "error": f"BDA parse error: {str(e)}",
+                "raw_data": data.hex(),
+                "data_length": len(data)
+            }
     
     @staticmethod
     def parse_message(data: bytes) -> Dict[str, Any]:
