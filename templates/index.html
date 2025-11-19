@@ -422,7 +422,22 @@
         
         function renderBDAMessage(msg) {
             let sensorsHtml = '';
+            let macAddressesList = [];
+            
             if (msg.sensors && Array.isArray(msg.sensors) && msg.sensors.length > 0) {
+                // Collect all MAC addresses for summary
+                msg.sensors.forEach((sensor, idx) => {
+                    const mac = sensor.mac_address || sensor.mac_address_raw || null;
+                    if (mac) {
+                        macAddressesList.push({
+                            index: idx + 1,
+                            mac: mac,
+                            isTarget: sensor.is_target_mac || false,
+                            rssi: sensor.rssi
+                        });
+                    }
+                });
+                
                 sensorsHtml = `
                     <h3>BLE Sensors (${msg.sensors_parsed || msg.sensors.length} parsed)</h3>
                     <table class="nested-table">
@@ -440,10 +455,47 @@
                             return `
                                 <tr>
                                     <td>${idx + 1}</td>
-                                    <td ${macClass}>${macDisplay}${macBadge}</td>
+                                    <td ${macClass}><strong>${macDisplay}</strong>${macBadge}</td>
                                     <td>${sensor.rssi !== undefined ? sensor.rssi + ' dBm' : 'N/A'} (${sensor.rssi_hex || 'N/A'})</td>
                                     <td>${sensor.data_size || 'N/A'} bytes</td>
                                     <td><code style="font-size: 0.85em;">${sensor.raw_data ? sensor.raw_data.substring(0, 100) + '...' : 'N/A'}</code></td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </table>
+                `;
+            } else if (msg.raw_data) {
+                // Fallback: try to extract MAC addresses from raw data if sensors weren't parsed
+                sensorsHtml = `
+                    <h3>BLE Sensors</h3>
+                    <p style="color: #dc3545;"><strong>Note:</strong> Sensor data parsing incomplete. Showing raw data.</p>
+                    <p><strong>Raw Data (Hex):</strong> <code style="font-size: 0.85em; word-break: break-all;">${msg.raw_data.substring(0, 500)}${msg.raw_data.length > 500 ? '...' : ''}</code></p>
+                `;
+            }
+            
+            // Add MAC addresses summary section
+            let macSummaryHtml = '';
+            if (macAddressesList.length > 0) {
+                macSummaryHtml = `
+                    <h3>📡 Detected BLE MAC Addresses</h3>
+                    <table class="nested-table">
+                        <tr>
+                            <th>#</th>
+                            <th>MAC Address</th>
+                            <th>Status</th>
+                            <th>RSSI</th>
+                        </tr>
+                        ${macAddressesList.map((macInfo) => {
+                            const macClass = macInfo.isTarget ? 'style="color: #28a745; font-weight: bold; font-size: 1.1em;"' : '';
+                            const statusBadge = macInfo.isTarget 
+                                ? '<span style="background: #28a745; color: white; padding: 4px 8px; border-radius: 3px; font-weight: bold;">TARGET MAC</span>'
+                                : '<span style="background: #6c757d; color: white; padding: 4px 8px; border-radius: 3px;">Standard</span>';
+                            return `
+                                <tr>
+                                    <td>${macInfo.index}</td>
+                                    <td ${macClass}><strong>${macInfo.mac}</strong></td>
+                                    <td>${statusBadge}</td>
+                                    <td>${macInfo.rssi !== undefined ? macInfo.rssi + ' dBm' : 'N/A'}</td>
                                 </tr>
                             `;
                         }).join('')}
@@ -463,7 +515,7 @@
                     <tr><td>Current Report Number</td><td>${msg.current_report_number || 'N/A'}</td></tr>
                     <tr><td>Scanned Sensor Count</td><td>${msg.scanned_sensor_count || 'N/A'}</td></tr>
                     <tr><td>Sensors Parsed</td><td>${msg.sensors_parsed || 0}</td></tr>
-                    <tr><td>Has Target MAC</td><td>${msg.has_target_mac ? '<strong style="color: #28a745;">YES</strong>' : 'No'}</td></tr>
+                    <tr><td>Has Target MAC</td><td>${msg.has_target_mac ? '<strong style="color: #28a745; font-size: 1.1em;">YES ✓</strong>' : 'No'}</td></tr>
                     <tr><td>GPS Timestamp</td><td>${msg.timestamp_gps || 'N/A'}</td></tr>
                 </table>
                 
@@ -475,6 +527,8 @@
                         <tr><td>Longitude</td><td>${msg.location_scan_start.longitude}</td></tr>
                     </table>
                 ` : ''}
+                
+                ${macSummaryHtml}
                 
                 ${sensorsHtml}
                 
