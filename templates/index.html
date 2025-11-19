@@ -268,16 +268,16 @@
                     if (sensor.is_target_mac === true) {
                         return true;
                     }
-                    // Also check MAC address strings
+                    // Also check MAC address strings (support both C30000 and C3000)
                     if (sensor.mac_address_raw) {
                         const macUpper = sensor.mac_address_raw.toUpperCase();
-                        if (macUpper.startsWith('AC233F') || macUpper.startsWith('C30000')) {
+                        if (macUpper.startsWith('AC233F') || macUpper.startsWith('C30000') || macUpper.startsWith('C3000')) {
                             return true;
                         }
                     }
                     if (sensor.mac_address) {
                         const macUpper = sensor.mac_address.toUpperCase();
-                        if (macUpper.startsWith('AC:23:3F') || macUpper.startsWith('C3:00:00')) {
+                        if (macUpper.startsWith('AC:23:3F') || macUpper.startsWith('C3:00:00') || macUpper.startsWith('C3:00:0')) {
                             return true;
                         }
                     }
@@ -294,6 +294,7 @@
                 // Check for hex patterns directly
                 // AC233F in hex = AC 23 3F (without colons)
                 // C30000 in hex = C3 00 00 (without colons)
+                // C3000 in hex = C3 00 0X (user mentioned C3000)
                 const hexPatterns = ['AC233F', 'AC23', 'C30000', 'C3000', 'C300'];
                 for (const pattern of hexPatterns) {
                     if (rawDataUpper.includes(pattern.toUpperCase())) {
@@ -475,26 +476,39 @@
                 });
                 
                 sensorsHtml = `
-                    <h3>BLE Sensors (${msg.sensors_parsed || msg.sensors.length} parsed)</h3>
+                    <h3>BLE Beacons/Tags (${msg.sensors_parsed || msg.sensors.length} detected)</h3>
                     <table class="nested-table">
                         <tr>
                             <th>#</th>
-                            <th>MAC Address</th>
+                            <th>MAC Address (Beacon ID)</th>
+                            <th>Type</th>
                             <th>RSSI</th>
                             <th>Data Size</th>
                             <th>Raw Data (first 50 bytes)</th>
+                            <th>Position</th>
                         </tr>
                         ${msg.sensors.map((sensor, idx) => {
-                            const macClass = sensor.is_target_mac ? 'style="color: #28a745; font-weight: bold;"' : '';
+                            const macClass = sensor.is_target_mac ? 'style="color: #28a745; font-weight: bold; font-size: 1.1em;"' : '';
                             const macDisplay = sensor.mac_address || sensor.mac_address_raw || 'N/A';
-                            const macBadge = sensor.is_target_mac ? ' <span style="background: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.8em;">TARGET</span>' : '';
+                            const macBadge = sensor.is_target_mac ? ' <span style="background: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.8em; font-weight: bold;">TARGET BEACON</span>' : '<span style="background: #6c757d; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.8em;">Standard</span>';
+                            // Use raw MAC (hex without colons) for type detection
+                            const macRaw = (sensor.mac_address_raw || macDisplay.toUpperCase().replace(/:/g, '')).toUpperCase();
+                            const beaconType = sensor.is_target_mac 
+                                ? (macRaw.startsWith('AC233F') ? 'AC233F Tag' : 
+                                   (macRaw.startsWith('C30000') || macRaw.startsWith('C3000') ? 'C3000 Tag' : 'Target Tag'))
+                                : 'Other';
+                            const positionInfo = sensor.byte_position !== undefined 
+                                ? `Byte ${sensor.byte_position}` 
+                                : (sensor.found_in_raw_data ? 'Raw Data' : 'Structured');
                             return `
                                 <tr>
                                     <td>${idx + 1}</td>
                                     <td ${macClass}><strong>${macDisplay}</strong>${macBadge}</td>
-                                    <td>${sensor.rssi !== undefined ? sensor.rssi + ' dBm' : 'N/A'} (${sensor.rssi_hex || 'N/A'})</td>
-                                    <td>${sensor.data_size || 'N/A'} bytes</td>
-                                    <td><code style="font-size: 0.85em;">${sensor.raw_data ? sensor.raw_data.substring(0, 100) + '...' : 'N/A'}</code></td>
+                                    <td>${beaconType}</td>
+                                    <td>${sensor.rssi !== undefined ? sensor.rssi + ' dBm' : 'N/A'} ${sensor.rssi_hex ? '(' + sensor.rssi_hex + ')' : ''}</td>
+                                    <td>${sensor.data_size || (sensor.raw_data ? Math.floor(sensor.raw_data.length / 2) + ' bytes' : 'N/A')}</td>
+                                    <td><code style="font-size: 0.85em;">${sensor.raw_data ? sensor.raw_data.substring(0, 100) + (sensor.raw_data.length > 100 ? '...' : '') : 'N/A'}</code></td>
+                                    <td><small>${positionInfo}</small></td>
                                 </tr>
                             `;
                         }).join('')}
@@ -509,33 +523,59 @@
                 `;
             }
             
-            // Add MAC addresses summary section
+            // Add BLE Beacons/Tags summary section
             let macSummaryHtml = '';
             if (macAddressesList.length > 0) {
+                // Separate target beacons from others
+                const targetBeacons = macAddressesList.filter(m => m.isTarget);
+                const otherBeacons = macAddressesList.filter(m => !m.isTarget);
+                
                 macSummaryHtml = `
-                    <h3>📡 Detected BLE MAC Addresses</h3>
-                    <table class="nested-table">
-                        <tr>
-                            <th>#</th>
-                            <th>MAC Address</th>
-                            <th>Status</th>
-                            <th>RSSI</th>
-                        </tr>
-                        ${macAddressesList.map((macInfo) => {
-                            const macClass = macInfo.isTarget ? 'style="color: #28a745; font-weight: bold; font-size: 1.1em;"' : '';
-                            const statusBadge = macInfo.isTarget 
-                                ? '<span style="background: #28a745; color: white; padding: 4px 8px; border-radius: 3px; font-weight: bold;">TARGET MAC</span>'
-                                : '<span style="background: #6c757d; color: white; padding: 4px 8px; border-radius: 3px;">Standard</span>';
-                            return `
-                                <tr>
-                                    <td>${macInfo.index}</td>
-                                    <td ${macClass}><strong>${macInfo.mac}</strong></td>
-                                    <td>${statusBadge}</td>
-                                    <td>${macInfo.rssi !== undefined ? macInfo.rssi + ' dBm' : 'N/A'}</td>
-                                </tr>
-                            `;
-                        }).join('')}
-                    </table>
+                    <h3>📡 Detected BLE Beacons/Tags</h3>
+                    ${targetBeacons.length > 0 ? `
+                        <h4 style="color: #28a745; margin-top: 15px;">🎯 Target Beacons (AC233F / C3000) - ${targetBeacons.length} found</h4>
+                        <table class="nested-table">
+                            <tr>
+                                <th>#</th>
+                                <th>Beacon ID (MAC Address)</th>
+                                <th>Type</th>
+                                <th>RSSI</th>
+                            </tr>
+                            ${targetBeacons.map((macInfo) => {
+                                // Use raw MAC format (hex without colons) for type detection
+                                const macRaw = macInfo.mac.toUpperCase().replace(/:/g, '');
+                                const beaconType = macRaw.startsWith('AC233F') ? 'AC233F Tag' : 
+                                                 (macRaw.startsWith('C30000') || macRaw.startsWith('C3000') ? 'C3000 Tag' : 'Target Tag');
+                                return `
+                                    <tr style="background: #f0fff4;">
+                                        <td>${macInfo.index}</td>
+                                        <td style="color: #28a745; font-weight: bold; font-size: 1.1em;"><strong>${macInfo.mac}</strong></td>
+                                        <td><span style="background: #28a745; color: white; padding: 4px 8px; border-radius: 3px; font-weight: bold;">${beaconType}</span></td>
+                                        <td>${macInfo.rssi !== undefined ? macInfo.rssi + ' dBm' : 'N/A'}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </table>
+                    ` : ''}
+                    ${otherBeacons.length > 0 ? `
+                        <h4 style="color: #6c757d; margin-top: 15px;">Other BLE Devices - ${otherBeacons.length} found</h4>
+                        <table class="nested-table">
+                            <tr>
+                                <th>#</th>
+                                <th>MAC Address</th>
+                                <th>RSSI</th>
+                            </tr>
+                            ${otherBeacons.map((macInfo) => {
+                                return `
+                                    <tr>
+                                        <td>${macInfo.index}</td>
+                                        <td>${macInfo.mac}</td>
+                                        <td>${macInfo.rssi !== undefined ? macInfo.rssi + ' dBm' : 'N/A'}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </table>
+                    ` : ''}
                 `;
             }
             

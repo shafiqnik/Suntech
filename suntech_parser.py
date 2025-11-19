@@ -247,11 +247,65 @@ class SuntechParser:
             # Structure for each sensor:
             # - BLE_SEN_DATA_SIZE (2 bytes) - Size of raw data
             # - BLE_SEN_DATA (variable, up to 521 bytes) - Raw BLE data
-            # - BLE_SEN_MAC (6 bytes) - MAC address
+            # - BLE_SEN_MAC (6 bytes) - MAC address (may be little endian)
             # - BLE_SEN_RSSI (1 byte) - RSSI value
             sensors = []
             start_idx = idx
+            remaining_data = data[idx:]
+            data_hex = remaining_data.hex().upper()
             
+            # Helper function to extract MAC address from bytes (handles both endian formats)
+            def extract_mac(mac_bytes):
+                """Extract MAC address, trying both big and little endian"""
+                # Big endian (standard): AC:23:3F:XX:XX:XX
+                mac_hex_be = mac_bytes.hex().upper()
+                # Little endian (reversed bytes): reverse the byte order
+                mac_bytes_le = bytes(reversed(mac_bytes))
+                mac_hex_le = mac_bytes_le.hex().upper()
+                
+                # Check which format matches our target MACs
+                mac_prefix_be = mac_hex_be[:6]  # First 3 bytes big endian
+                mac_prefix_le = mac_hex_le[:6]  # First 3 bytes little endian
+                
+                # Determine if this is a target MAC in either format
+                # Support both C30000 and C3000 (user mentioned C3000)
+                is_target_be = (mac_prefix_be.startswith('AC233F') or 
+                               mac_prefix_be.startswith('C30000') or 
+                               mac_prefix_be.startswith('C3000'))
+                is_target_le = (mac_prefix_le.startswith('AC233F') or 
+                               mac_prefix_le.startswith('C30000') or 
+                               mac_prefix_le.startswith('C3000'))
+                
+                # Use the format that matches target, or default to big endian
+                if is_target_le and not is_target_be:
+                    # Little endian format detected
+                    mac_hex = mac_hex_le
+                    mac_bytes_final = mac_bytes_le
+                    endian = 'little'
+                else:
+                    # Big endian format (default)
+                    mac_hex = mac_hex_be
+                    mac_bytes_final = mac_bytes
+                    endian = 'big'
+                
+                # Format MAC address: AC:23:3F or C3:00:00 or C3:00:0X
+                mac_formatted = ':'.join([mac_hex[i:i+2] for i in range(0, len(mac_hex), 2)])
+                mac_prefix = mac_hex[:6]
+                # Check if target MAC (support AC233F, C30000, or C3000)
+                is_target = (mac_prefix.startswith('AC233F') or 
+                           mac_prefix.startswith('C30000') or 
+                           mac_prefix.startswith('C3000') or 
+                           is_target_le)
+                
+                return {
+                    'mac_hex': mac_hex,
+                    'mac_formatted': mac_formatted,
+                    'mac_bytes_original': mac_bytes.hex().upper(),
+                    'endian': endian,
+                    'is_target': is_target
+                }
+            
+            # Try to parse sensors using the expected structure
             for sensor_idx in range(ble_sen_cnt):
                 if idx >= len(data):
                     break
@@ -273,20 +327,19 @@ class SuntechParser:
                 idx += data_size
                 sensor_data['raw_data'] = ble_raw_data.hex()
                 
-                # BLE_SEN_MAC (6 bytes)
+                # BLE_SEN_MAC (6 bytes) - may be in little endian format
                 if idx + 6 > len(data):
                     break
                 mac_bytes = data[idx:idx+6]
                 idx += 6
-                # Format MAC address: AC:23:3F or C3:00:00
-                mac_hex = mac_bytes.hex().upper()
-                mac_formatted = ':'.join([mac_hex[i:i+2] for i in range(0, len(mac_hex), 2)])
-                sensor_data['mac_address'] = mac_formatted
-                sensor_data['mac_address_raw'] = mac_hex
                 
-                # Check if MAC starts with AC233F or C30000
-                mac_prefix = mac_hex[:6]  # First 3 bytes (6 hex chars)
-                sensor_data['is_target_mac'] = mac_prefix in ['AC233F', 'C30000']
+                # Extract MAC using helper function
+                mac_info = extract_mac(mac_bytes)
+                sensor_data['mac_address'] = mac_info['mac_formatted']
+                sensor_data['mac_address_raw'] = mac_info['mac_hex']
+                sensor_data['mac_bytes_original'] = mac_info['mac_bytes_original']
+                sensor_data['mac_endian'] = mac_info['endian']
+                sensor_data['is_target_mac'] = mac_info['is_target']
                 
                 # BLE_SEN_RSSI (1 byte)
                 if idx + 1 > len(data):
@@ -302,6 +355,111 @@ class SuntechParser:
                 sensor_data['rssi_hex'] = f"0x{rssi_byte:02X}"
                 
                 sensors.append(sensor_data)
+            
+            # Always scan the entire raw data for BLE beacons/tags starting with AC233F or C3000/C30000
+            # This ensures we catch all beacons even if they're embedded in advertisement data
+            data_hex_upper = data.hex().upper()
+            
+            # Look for target MAC prefixes: AC233F, C30000, C3000 (user mentioned C3000)
+            # Also check little endian versions: 3F23AC, 0000C3, 000C3
+            target_prefixes = ['AC233F', 'C30000', 'C3000', '3F23AC', '0000C3', '000C3']
+            
+            # Track found MAC addresses to avoid duplicates
+            found_macs = set()
+            
+            # Scan entire message for beacon patterns
+            for prefix in target_prefixes:
+                search_pos = 0
+                while True:
+                    pos = data_hex_upper.find(prefix, search_pos)
+                    if pos < 0:
+                        break
+                    
+                    # Must be at byte boundary (even position in hex string)
+                    if pos % 2 == 0:
+                        byte_pos = pos // 2
+                        
+                        # Extract 6 bytes for MAC address (12 hex chars)
+                        if byte_pos + 6 <= len(data):
+                            mac_bytes = data[byte_pos:byte_pos + 6]
+                            mac_info = extract_mac(mac_bytes)
+                            
+                            # Check if this is a target MAC
+                            mac_hex = mac_info['mac_hex']
+                            is_target = (mac_hex.startswith('AC233F') or 
+                                       mac_hex.startswith('C30000') or 
+                                       mac_hex.startswith('C3000'))
+                            
+                            # Create unique key to avoid duplicates
+                            mac_key = mac_hex
+                            
+                            if is_target and mac_key not in found_macs:
+                                found_macs.add(mac_key)
+                                
+                                # Try to find RSSI (usually 1 byte after MAC, but may vary)
+                                rssi_value = 0
+                                rssi_hex = '0x00'
+                                if byte_pos + 7 <= len(data):
+                                    rssi_byte = struct.unpack('>B', data[byte_pos + 6:byte_pos + 7])[0]
+                                    if rssi_byte > 127:
+                                        rssi_value = rssi_byte - 256
+                                    else:
+                                        rssi_value = rssi_byte
+                                    rssi_hex = f"0x{rssi_byte:02X}"
+                                
+                                # Extract surrounding raw data for context (up to 20 bytes before and after)
+                                context_start = max(0, byte_pos - 20)
+                                context_end = min(len(data), byte_pos + 26)
+                                context_data = data[context_start:context_end]
+                                
+                                sensor_data = {
+                                    'data_size': 0,
+                                    'raw_data': context_data.hex().upper(),
+                                    'mac_address': mac_info['mac_formatted'],
+                                    'mac_address_raw': mac_hex,
+                                    'mac_bytes_original': mac_info['mac_bytes_original'],
+                                    'mac_endian': mac_info['endian'],
+                                    'is_target_mac': True,
+                                    'rssi': rssi_value,
+                                    'rssi_hex': rssi_hex,
+                                    'found_in_raw_data': True,
+                                    'byte_position': byte_pos
+                                }
+                                sensors.append(sensor_data)
+                    
+                    # Move search position forward
+                    search_pos = pos + 2
+            
+            # If we didn't parse all sensors from structured format, also try to find MACs in remaining data
+            if len(sensors) < ble_sen_cnt and idx < len(data):
+                # Search for MAC addresses in the remaining data (already handled above, but keep for compatibility)
+                remaining_hex = data[idx:].hex().upper()
+                
+                for prefix in target_prefixes:
+                    pos = remaining_hex.find(prefix)
+                    if pos >= 0 and pos % 2 == 0:  # Must be at byte boundary
+                        byte_pos = pos // 2
+                        if byte_pos + 6 <= len(data[idx:]):
+                            mac_bytes = data[idx + byte_pos:idx + byte_pos + 6]
+                            mac_info = extract_mac(mac_bytes)
+                            mac_hex = mac_info['mac_hex']
+                            mac_key = mac_hex
+                            
+                            if mac_info['is_target'] and mac_key not in found_macs:
+                                found_macs.add(mac_key)
+                                sensor_data = {
+                                    'data_size': 0,
+                                    'raw_data': '',
+                                    'mac_address': mac_info['mac_formatted'],
+                                    'mac_address_raw': mac_hex,
+                                    'mac_bytes_original': mac_info['mac_bytes_original'],
+                                    'mac_endian': mac_info['endian'],
+                                    'is_target_mac': True,
+                                    'rssi': 0,
+                                    'rssi_hex': '0x00',
+                                    'found_in_raw_data': True
+                                }
+                                sensors.append(sensor_data)
             
             # Create timestamp
             timestamp = datetime.now().isoformat()
