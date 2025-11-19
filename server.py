@@ -51,7 +51,18 @@ class ThreadedServer:
                             if len(self.message_store) > 1000:
                                 self.message_store.pop(0)
                         
-                        print(f"Parsed message type: {parsed.get('report_type', 'Unknown')}")
+                        report_type = parsed.get('report_type', 'Unknown')
+                        print(f"Parsed message type: {report_type}")
+                        
+                        # Print entire raw message for BDA/SNB (BLE Sensor Data Report)
+                        if 'BDA' in report_type or 'BLE Sensor Data Report' in report_type:
+                            raw_hex = data.hex()
+                            print("\n" + "="*80)
+                            print(f"BLE SENSOR DATA REPORT - COMPLETE RAW MESSAGE")
+                            print("="*80)
+                            print(f"Message Length: {len(data)} bytes ({len(raw_hex)} hex characters)")
+                            print(f"Raw Data (Hex): {raw_hex}")
+                            print("="*80 + "\n")
                         
                     except Exception as e:
                         print(f"Error parsing message: {e}")
