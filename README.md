@@ -57,6 +57,7 @@ suntech/
 ├── templates/
 │   └── index.html      # Web interface
 ├── requirements.txt     # Dependencies (none required)
+├── push_to_github.ps1  # PowerShell script to push to GitHub
 └── README.md           # This file
 ```
 
@@ -73,4 +74,33 @@ The parser is based on the Suntech ST6560 communication protocol as documented i
 - The socket server echoes back received data to the client
 - The web interface auto-refreshes every 2 seconds
 - All timestamps are displayed in local time
+
+## GitHub Setup
+
+This project is configured to push to GitHub. To push the code:
+
+1. **Create the repository on GitHub:**
+   - Go to https://github.com/new
+   - Repository name: `Suntech`
+   - Description: "Suntech Message Parser - Socket server and web interface for ST6560 device messages"
+   - Choose Public or Private
+   - **Do NOT** initialize with README, .gitignore, or license (we already have these)
+   - Click "Create repository"
+
+2. **Push the code:**
+   ```powershell
+   # Option 1: Use the provided script
+   .\push_to_github.ps1
+   
+   # Option 2: Manual push
+   git branch -M main
+   git push -u origin main
+   ```
+
+3. **If authentication is required:**
+   - For HTTPS: You'll be prompted for username and password (use a Personal Access Token as password)
+   - For SSH: Set up SSH keys on GitHub
+   - Or use: `git config credential.helper store` to save credentials
+
+Repository URL: https://github.com/shafiqnik/Suntech
 
