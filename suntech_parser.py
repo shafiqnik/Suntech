@@ -129,38 +129,42 @@ class SuntechParser:
             # Create timestamp
             timestamp = datetime.now().isoformat()
             
+            # Include raw data for keyword detection
+            raw_data_hex = data.hex()
+            
             results = {
                 "timestamp": timestamp,
-            "report_type": "STT (Status Report)",
-            "header": f"0x{hdr:02X} (No ACK required)",
-            "device_id_esn": dev_id,
-            "packet_length": pkt_len,
-            "model_id": model,
-            "software_version": f"{sw_ver_str[0]}.{sw_ver_str[1]}.{sw_ver_str[2:]}",
-            "message_type": "Real Time (1)" if msg_type == 1 else "Stored (0)",
-            "timestamp_gps": f"{date} {time}",
-            "gps": {
-                "latitude": f"{lat:.6f}",
-                "longitude": f"{lon:.6f}",
-                "speed_kmh": f"{spd:.2f}",
-                "course_deg": f"{crs:.2f}",
-                "satellites": satt,
-                "fix_status": {0: "Not Fixed", 1: "Fixed", 3: "DR Activated"}.get(fix, str(fix)),
-            },
-            "cellular": {
-                "mcc": mcc,
-                "mnc": mnc,
-                "lac": f"{lac:04X}",
-                "rx_level_rssi": rx_lvl,
-                "cell_id": f"{cell_id:08X}",
-            },
-            "status": {
-                "input_state_hex": f"0x{in_state:02X}",
-                "output_state_hex": f"0x{out_state:02X}",
-                "device_mode": {1: "Driving", 5: "Deactivate Zone"}.get(mode, str(mode)),
-                "report_type_id": rpt_type,
-                "message_number": msg_num,
-            },
+                "report_type": "STT (Status Report)",
+                "raw_data": raw_data_hex,
+                "header": f"0x{hdr:02X} (No ACK required)",
+                "device_id_esn": dev_id,
+                "packet_length": pkt_len,
+                "model_id": model,
+                "software_version": f"{sw_ver_str[0]}.{sw_ver_str[1]}.{sw_ver_str[2:]}",
+                "message_type": "Real Time (1)" if msg_type == 1 else "Stored (0)",
+                "timestamp_gps": f"{date} {time}",
+                "gps": {
+                    "latitude": f"{lat:.6f}",
+                    "longitude": f"{lon:.6f}",
+                    "speed_kmh": f"{spd:.2f}",
+                    "course_deg": f"{crs:.2f}",
+                    "satellites": satt,
+                    "fix_status": {0: "Not Fixed", 1: "Fixed", 3: "DR Activated"}.get(fix, str(fix)),
+                },
+                "cellular": {
+                    "mcc": mcc,
+                    "mnc": mnc,
+                    "lac": f"{lac:04X}",
+                    "rx_level_rssi": rx_lvl,
+                    "cell_id": f"{cell_id:08X}",
+                },
+                "status": {
+                    "input_state_hex": f"0x{in_state:02X}",
+                    "output_state_hex": f"0x{out_state:02X}",
+                    "device_mode": {1: "Driving", 5: "Deactivate Zone"}.get(mode, str(mode)),
+                    "report_type_id": rpt_type,
+                    "message_number": msg_num,
+                },
                 "assign_map_custom_headers": f"0x{assign_map:08X}",
                 "raw_trailing_data_length": len(data) - 58,
             }
@@ -221,23 +225,27 @@ class SuntechParser:
             # Create timestamp
             timestamp = datetime.now().isoformat()
             
+            # Include raw data for keyword detection
+            raw_data_hex = data.hex()
+            
             results = {
-            "timestamp": timestamp,
-            "report_type": "BDA/SNB (BLE Sensor Data Report)",
-            "header": f"0x{hdr:02X} (No ACK required)",
-            "device_id_esn": dev_id,
-            "packet_length": pkt_len,
-            "model_id": model,
-            "software_version": f"{sw_ver_str[0]}.{sw_ver_str[1]}.{sw_ver_str[2:]}",
-            "ble_scan_status": "Scan Performed (1)" if ble_scan_status == 1 else "No Scan (0)",
-            "total_reports_expected": total_no,
-            "current_report_number": curr_no,
-            "scanned_sensor_count": ble_sen_cnt,
-            "timestamp_gps": f"{scan_date} {scan_time}",
-            "location_scan_start": {
-                "latitude": f"{scan_lat:.6f}",
-                "longitude": f"{scan_lon:.6f}",
-            },
+                "timestamp": timestamp,
+                "report_type": "BDA/SNB (BLE Sensor Data Report)",
+                "raw_data": raw_data_hex,
+                "header": f"0x{hdr:02X} (No ACK required)",
+                "device_id_esn": dev_id,
+                "packet_length": pkt_len,
+                "model_id": model,
+                "software_version": f"{sw_ver_str[0]}.{sw_ver_str[1]}.{sw_ver_str[2:]}",
+                "ble_scan_status": "Scan Performed (1)" if ble_scan_status == 1 else "No Scan (0)",
+                "total_reports_expected": total_no,
+                "current_report_number": curr_no,
+                "scanned_sensor_count": ble_sen_cnt,
+                "timestamp_gps": f"{scan_date} {scan_time}",
+                "location_scan_start": {
+                    "latitude": f"{scan_lat:.6f}",
+                    "longitude": f"{scan_lon:.6f}",
+                },
                 "raw_data_start_index": idx,
                 "remaining_payload_bytes": len(data) - idx
             }
