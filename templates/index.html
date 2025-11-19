@@ -441,6 +441,21 @@
             `;
         }
         
+        function formatHexData(hexString) {
+            if (!hexString) return '';
+            // Format hex string with spaces every 2 characters and line breaks every 32 bytes (64 hex chars)
+            let formatted = '';
+            for (let i = 0; i < hexString.length; i += 2) {
+                formatted += hexString.substr(i, 2);
+                if ((i + 2) % 64 === 0) {
+                    formatted += '\n';
+                } else if ((i + 2) % 2 === 0 && (i + 2) < hexString.length) {
+                    formatted += ' ';
+                }
+            }
+            return formatted;
+        }
+        
         function renderBDAMessage(msg) {
             let sensorsHtml = '';
             let macAddressesList = [];
@@ -557,31 +572,23 @@
                     <p><strong>Remaining Payload:</strong> ${msg.remaining_payload_bytes} bytes</p>
                 ` : ''}
                 
-                ${msg.raw_data ? `
+                ${(msg.raw_data && msg.raw_data.length > 0) ? `
                     <div class="raw-data-container">
                         <h3>📋 Complete Raw Message (Hex)</h3>
-                        <p><strong>Total Length:</strong> ${msg.raw_data.length / 2} bytes (${msg.raw_data.length} hex characters)</p>
+                        <p><strong>Total Length:</strong> ${Math.floor(msg.raw_data.length / 2)} bytes (${msg.raw_data.length} hex characters)</p>
                         <div class="raw-data-hex">${formatHexData(msg.raw_data)}</div>
                         <p style="margin-top: 10px; font-size: 0.85em; color: #666;">
-                            <strong>Copy Format:</strong> <code style="background: #e9ecef; padding: 2px 6px; border-radius: 3px;">${msg.raw_data}</code>
+                            <strong>Copy Format:</strong> <code style="background: #e9ecef; padding: 2px 6px; border-radius: 3px; word-break: break-all;">${msg.raw_data}</code>
                         </p>
                     </div>
-                ` : ''}
+                ` : `
+                    <div class="raw-data-container">
+                        <h3>📋 Complete Raw Message (Hex)</h3>
+                        <p style="color: #dc3545;"><strong>Warning:</strong> Raw data not available in message.</p>
+                        <p><small>Message keys: ${Object.keys(msg).join(', ')}</small></p>
+                    </div>
+                `}
             `;
-        }
-        
-        function formatHexData(hexString) {
-            // Format hex string with spaces every 2 characters and line breaks every 32 bytes (64 hex chars)
-            let formatted = '';
-            for (let i = 0; i < hexString.length; i += 2) {
-                formatted += hexString.substr(i, 2);
-                if ((i + 2) % 64 === 0) {
-                    formatted += '\n';
-                } else if ((i + 2) % 2 === 0 && (i + 2) < hexString.length) {
-                    formatted += ' ';
-                }
-            }
-            return formatted;
         }
         
         function renderGenericMessage(msg) {
