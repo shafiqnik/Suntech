@@ -236,6 +236,33 @@
         }
         
         function containsKeywords(msg) {
+            // Check if message has target MAC addresses (from parsed sensors)
+            if (msg.has_target_mac === true) {
+                return true;
+            }
+            
+            // Check parsed sensors for target MAC addresses
+            if (msg.sensors && Array.isArray(msg.sensors)) {
+                for (const sensor of msg.sensors) {
+                    if (sensor.is_target_mac === true) {
+                        return true;
+                    }
+                    // Also check MAC address strings
+                    if (sensor.mac_address_raw) {
+                        const macUpper = sensor.mac_address_raw.toUpperCase();
+                        if (macUpper.startsWith('AC233F') || macUpper.startsWith('C30000')) {
+                            return true;
+                        }
+                    }
+                    if (sensor.mac_address) {
+                        const macUpper = sensor.mac_address.toUpperCase();
+                        if (macUpper.startsWith('AC:23:3F') || macUpper.startsWith('C3:00:00')) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            
             // Keywords to search for (case-insensitive)
             const keywords = ['Vecima', 'AC233F', 'C3000', 'AC:23:3F', 'C3:00:00'];
             
@@ -245,7 +272,7 @@
                 
                 // Check for hex patterns directly
                 // AC233F in hex = AC 23 3F (without colons)
-                // C3000 in hex = C3 00 00 (without colons)
+                // C30000 in hex = C3 00 00 (without colons)
                 const hexPatterns = ['AC233F', 'AC23', 'C30000', 'C3000', 'C300'];
                 for (const pattern of hexPatterns) {
                     if (rawDataUpper.includes(pattern.toUpperCase())) {
@@ -394,6 +421,36 @@
         }
         
         function renderBDAMessage(msg) {
+            let sensorsHtml = '';
+            if (msg.sensors && Array.isArray(msg.sensors) && msg.sensors.length > 0) {
+                sensorsHtml = `
+                    <h3>BLE Sensors (${msg.sensors_parsed || msg.sensors.length} parsed)</h3>
+                    <table class="nested-table">
+                        <tr>
+                            <th>#</th>
+                            <th>MAC Address</th>
+                            <th>RSSI</th>
+                            <th>Data Size</th>
+                            <th>Raw Data (first 50 bytes)</th>
+                        </tr>
+                        ${msg.sensors.map((sensor, idx) => {
+                            const macClass = sensor.is_target_mac ? 'style="color: #28a745; font-weight: bold;"' : '';
+                            const macDisplay = sensor.mac_address || sensor.mac_address_raw || 'N/A';
+                            const macBadge = sensor.is_target_mac ? ' <span style="background: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.8em;">TARGET</span>' : '';
+                            return `
+                                <tr>
+                                    <td>${idx + 1}</td>
+                                    <td ${macClass}>${macDisplay}${macBadge}</td>
+                                    <td>${sensor.rssi !== undefined ? sensor.rssi + ' dBm' : 'N/A'} (${sensor.rssi_hex || 'N/A'})</td>
+                                    <td>${sensor.data_size || 'N/A'} bytes</td>
+                                    <td><code style="font-size: 0.85em;">${sensor.raw_data ? sensor.raw_data.substring(0, 100) + '...' : 'N/A'}</code></td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </table>
+                `;
+            }
+            
             return `
                 <table>
                     <tr><th>Field</th><th>Value</th></tr>
@@ -405,6 +462,8 @@
                     <tr><td>Total Reports Expected</td><td>${msg.total_reports_expected || 'N/A'}</td></tr>
                     <tr><td>Current Report Number</td><td>${msg.current_report_number || 'N/A'}</td></tr>
                     <tr><td>Scanned Sensor Count</td><td>${msg.scanned_sensor_count || 'N/A'}</td></tr>
+                    <tr><td>Sensors Parsed</td><td>${msg.sensors_parsed || 0}</td></tr>
+                    <tr><td>Has Target MAC</td><td>${msg.has_target_mac ? '<strong style="color: #28a745;">YES</strong>' : 'No'}</td></tr>
                     <tr><td>GPS Timestamp</td><td>${msg.timestamp_gps || 'N/A'}</td></tr>
                 </table>
                 
@@ -416,6 +475,8 @@
                         <tr><td>Longitude</td><td>${msg.location_scan_start.longitude}</td></tr>
                     </table>
                 ` : ''}
+                
+                ${sensorsHtml}
                 
                 ${msg.remaining_payload_bytes !== undefined ? `
                     <p><strong>Remaining Payload:</strong> ${msg.remaining_payload_bytes} bytes</p>

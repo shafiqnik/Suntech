@@ -222,11 +222,74 @@ class SuntechParser:
             scan_lon = SuntechParser.parse_gps_coord(data[idx:idx+4])
             idx += 4
             
+            # Parse BLE Sensor Data
+            # Structure for each sensor:
+            # - BLE_SEN_DATA_SIZE (2 bytes) - Size of raw data
+            # - BLE_SEN_DATA (variable, up to 521 bytes) - Raw BLE data
+            # - BLE_SEN_MAC (6 bytes) - MAC address
+            # - BLE_SEN_RSSI (1 byte) - RSSI value
+            sensors = []
+            start_idx = idx
+            
+            for sensor_idx in range(ble_sen_cnt):
+                if idx >= len(data):
+                    break
+                
+                sensor_data = {}
+                
+                # BLE_SEN_DATA_SIZE (2 bytes)
+                if idx + 2 > len(data):
+                    break
+                data_size = struct.unpack('>H', data[idx:idx+2])[0]
+                idx += 2
+                sensor_data['data_size'] = data_size
+                
+                # BLE_SEN_DATA (variable size)
+                if idx + data_size > len(data):
+                    # Not enough data, break
+                    break
+                ble_raw_data = data[idx:idx+data_size]
+                idx += data_size
+                sensor_data['raw_data'] = ble_raw_data.hex()
+                
+                # BLE_SEN_MAC (6 bytes)
+                if idx + 6 > len(data):
+                    break
+                mac_bytes = data[idx:idx+6]
+                idx += 6
+                # Format MAC address: AC:23:3F or C3:00:00
+                mac_hex = mac_bytes.hex().upper()
+                mac_formatted = ':'.join([mac_hex[i:i+2] for i in range(0, len(mac_hex), 2)])
+                sensor_data['mac_address'] = mac_formatted
+                sensor_data['mac_address_raw'] = mac_hex
+                
+                # Check if MAC starts with AC233F or C30000
+                mac_prefix = mac_hex[:6]  # First 3 bytes (6 hex chars)
+                sensor_data['is_target_mac'] = mac_prefix in ['AC233F', 'C30000']
+                
+                # BLE_SEN_RSSI (1 byte)
+                if idx + 1 > len(data):
+                    break
+                rssi_byte = struct.unpack('>B', data[idx:idx+1])[0]
+                idx += 1
+                # RSSI is signed: C3 = -61, convert to signed
+                if rssi_byte > 127:
+                    rssi_value = rssi_byte - 256
+                else:
+                    rssi_value = rssi_byte
+                sensor_data['rssi'] = rssi_value
+                sensor_data['rssi_hex'] = f"0x{rssi_byte:02X}"
+                
+                sensors.append(sensor_data)
+            
             # Create timestamp
             timestamp = datetime.now().isoformat()
             
             # Include raw data for keyword detection
             raw_data_hex = data.hex()
+            
+            # Check if any sensor has target MAC addresses
+            has_target_mac = any(s.get('is_target_mac', False) for s in sensors)
             
             results = {
                 "timestamp": timestamp,
@@ -246,7 +309,10 @@ class SuntechParser:
                     "latitude": f"{scan_lat:.6f}",
                     "longitude": f"{scan_lon:.6f}",
                 },
-                "raw_data_start_index": idx,
+                "sensors": sensors,
+                "sensors_parsed": len(sensors),
+                "has_target_mac": has_target_mac,
+                "raw_data_start_index": start_idx,
                 "remaining_payload_bytes": len(data) - idx
             }
             
