@@ -84,9 +84,9 @@ class SuntechParser:
         try:
             results = {}
             
-            # Check minimum length
-            if len(data) < 58:
-                raise ValueError(f"STT message too short: {len(data)} bytes (expected at least 58)")
+            # Check minimum length (some variants may be shorter)
+            if len(data) < 15:
+                raise ValueError(f"STT message too short: {len(data)} bytes (expected at least 15)")
             
             # 1. Header and Basic ID (1 + 2 + 5 + 3 + 1 + 3 + 1 = 16 bytes)
             hdr = struct.unpack('>B', data[0:1])[0]
@@ -97,34 +97,34 @@ class SuntechParser:
             # SW_VER structure: 3 bytes BCD
             sw_ver_str = "".join(f'{b:02X}' for b in data[12:15])
             
-            # 2. Time/Date & Cellular (15 to 33 bytes)
-            msg_type = struct.unpack('>B', data[15:16])[0]
-            date = SuntechParser.parse_suntech_date(data[16:19])
-            time = SuntechParser.parse_suntech_time(data[19:22])
-            cell_id = struct.unpack('>I', data[22:26])[0]
-            mcc = SuntechParser.bcd_to_dec(data[26:28])
-            mnc = SuntechParser.bcd_to_dec(data[28:30])
-            lac = struct.unpack('>H', data[30:32])[0]
-            rx_lvl = struct.unpack('>B', data[32:33])[0]
+            # 2. Time/Date & Cellular (15 to 33 bytes) - with bounds checking
+            msg_type = struct.unpack('>B', data[15:16])[0] if len(data) > 15 else 0
+            date = SuntechParser.parse_suntech_date(data[16:19]) if len(data) > 18 else "N/A"
+            time = SuntechParser.parse_suntech_time(data[19:22]) if len(data) > 21 else "N/A"
+            cell_id = struct.unpack('>I', data[22:26])[0] if len(data) > 25 else 0
+            mcc = SuntechParser.bcd_to_dec(data[26:28]) if len(data) > 27 else 0
+            mnc = SuntechParser.bcd_to_dec(data[28:30]) if len(data) > 29 else 0
+            lac = struct.unpack('>H', data[30:32])[0] if len(data) > 31 else 0
+            rx_lvl = struct.unpack('>B', data[32:33])[0] if len(data) > 32 else 0
             
-            # 3. GPS Data (33 to 45 bytes)
-            lat = SuntechParser.parse_gps_coord(data[33:37])
-            lon = SuntechParser.parse_gps_coord(data[37:41])
-            spd = struct.unpack('>H', data[41:43])[0] / 100.0  # /100 for km/h
-            crs = struct.unpack('>H', data[43:45])[0] / 100.0  # /100 for degrees
-            satt = struct.unpack('>B', data[45:46])[0]
-            fix = struct.unpack('>B', data[46:47])[0]
+            # 3. GPS Data (33 to 45 bytes) - with bounds checking
+            lat = SuntechParser.parse_gps_coord(data[33:37]) if len(data) > 36 else 0.0
+            lon = SuntechParser.parse_gps_coord(data[37:41]) if len(data) > 40 else 0.0
+            spd = (struct.unpack('>H', data[41:43])[0] / 100.0) if len(data) > 42 else 0.0
+            crs = (struct.unpack('>H', data[43:45])[0] / 100.0) if len(data) > 44 else 0.0
+            satt = struct.unpack('>B', data[45:46])[0] if len(data) > 45 else 0
+            fix = struct.unpack('>B', data[46:47])[0] if len(data) > 46 else 0
             
-            # 4. Status (47 to 52 bytes)
-            in_state = struct.unpack('>B', data[47:48])[0]
-            out_state = struct.unpack('>B', data[48:49])[0]
-            mode = struct.unpack('>B', data[49:50])[0]
-            rpt_type = struct.unpack('>B', data[50:51])[0]
-            msg_num = struct.unpack('>H', data[51:53])[0]
+            # 4. Status (47 to 52 bytes) - with bounds checking
+            in_state = struct.unpack('>B', data[47:48])[0] if len(data) > 47 else 0
+            out_state = struct.unpack('>B', data[48:49])[0] if len(data) > 48 else 0
+            mode = struct.unpack('>B', data[49:50])[0] if len(data) > 49 else 0
+            rpt_type = struct.unpack('>B', data[50:51])[0] if len(data) > 50 else 0
+            msg_num = struct.unpack('>H', data[51:53])[0] if len(data) > 52 else 0
             
-            # 5. Final fields and mapping start (53 onwards)
-            reserved1 = struct.unpack('>B', data[53:54])[0]
-            assign_map = struct.unpack('>I', data[54:58])[0]
+            # 5. Final fields and mapping start (53 onwards) - with bounds checking
+            reserved1 = struct.unpack('>B', data[53:54])[0] if len(data) > 53 else 0
+            assign_map = struct.unpack('>I', data[54:58])[0] if len(data) > 57 else 0
             
             # Create timestamp
             timestamp = datetime.now().isoformat()
@@ -166,7 +166,8 @@ class SuntechParser:
                     "message_number": msg_num,
                 },
                 "assign_map_custom_headers": f"0x{assign_map:08X}",
-                "raw_trailing_data_length": len(data) - 58,
+                "raw_trailing_data_length": max(0, len(data) - 58),
+                "message_length": len(data),
             }
             return results
         except Exception as e:
