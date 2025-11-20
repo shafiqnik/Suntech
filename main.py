@@ -13,15 +13,17 @@ def main():
     """Main application entry point"""
     # Shared message store
     message_store = []
+    # Shared beacon scan store (timestamp, MAC ID)
+    beacon_scan_store = []
     
     # Create and start socket server on port 18160
-    socket_server = ThreadedServer('', 18160, message_store)
+    socket_server = ThreadedServer('', 18160, message_store, beacon_scan_store)
     socket_thread = threading.Thread(target=socket_server.listen, daemon=True)
     socket_thread.start()
     print("✓ Socket server started on port 18160")
     
     # Create and start web server on port 8080
-    web_server = WebServer(8080, message_store)
+    web_server = WebServer(8080, message_store, beacon_scan_store)
     web_server.start()
     print("✓ Web server started on http://localhost:8080")
     print("\n" + "="*60)
@@ -29,6 +31,7 @@ def main():
     print("="*60)
     print("Socket Server: Listening on port 18160")
     print("Web Interface: http://localhost:8080")
+    print("Beacon Table: http://localhost:8080/table.html")
     print("="*60)
     print("\nPress Ctrl+C to stop...\n")
     
