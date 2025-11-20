@@ -149,6 +149,54 @@
             color: #dc3545;
         }
         
+        .coordinates {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #495057;
+        }
+        
+        .log-viewer {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            display: none;
+        }
+        
+        .log-viewer h3 {
+            margin-top: 0;
+            color: #667eea;
+        }
+        
+        .log-file-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .log-file-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: white;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .log-file-item:hover {
+            background: #e9ecef;
+        }
+        
+        .log-content {
+            max-height: 400px;
+            overflow-y: auto;
+            background: white;
+            padding: 15px;
+            border-radius: 3px;
+            margin-top: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+        }
+        
         .no-scans {
             text-align: center;
             padding: 40px;
@@ -205,6 +253,7 @@
             <button onclick="refreshTable()">🔄 Refresh</button>
             <button onclick="exportToCSV()">📥 Export to CSV</button>
             <button onclick="clearTable()">🗑️ Clear All</button>
+            <button onclick="viewLogFiles()">📋 View Log Files</button>
             <span class="status" id="status">Loading...</span>
         </div>
         
@@ -227,11 +276,13 @@
                         <th>BLE Beacon MAC ID</th>
                         <th>Count</th>
                         <th>Ignition Status</th>
+                        <th>Latitude</th>
+                        <th>Longitude</th>
                     </tr>
                 </thead>
                 <tbody id="table-body">
                     <tr>
-                        <td colspan="4" class="no-scans">Loading beacon scans...</td>
+                        <td colspan="6" class="no-scans">Loading beacon scans...</td>
                     </tr>
                 </tbody>
             </table>
@@ -283,7 +334,7 @@
             const tbody = document.getElementById('table-body');
             
             if (beaconScans.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
                 return;
             }
             
@@ -298,7 +349,8 @@
                         macId: macId,
                         count: 0,
                         timestamps: [],
-                        ignitionStatuses: []  // Track all ignition statuses for this MAC
+                        ignitionStatuses: [],  // Track all ignition statuses for this MAC
+                        coordinates: []  // Track all coordinates for this MAC
                     };
                 }
                 
@@ -313,9 +365,18 @@
                         timestamp: scan.timestamp ? new Date(scan.timestamp) : new Date()
                     });
                 }
+                // Store coordinates with timestamp for most recent determination
+                if (scan.latitude !== null && scan.latitude !== undefined && 
+                    scan.longitude !== null && scan.longitude !== undefined) {
+                    macGroups[macId].coordinates.push({
+                        latitude: scan.latitude,
+                        longitude: scan.longitude,
+                        timestamp: scan.timestamp ? new Date(scan.timestamp) : new Date()
+                    });
+                }
             });
             
-            // Convert to array and get most recent timestamp and ignition status for each MAC ID
+            // Convert to array and get most recent timestamp, ignition status, and coordinates for each MAC ID
             const uniqueScans = Object.values(macGroups).map(group => {
                 // Get most recent timestamp
                 let mostRecentTimestamp = null;
@@ -331,11 +392,23 @@
                     mostRecentIgnitionStatus = group.ignitionStatuses[0].status;
                 }
                 
+                // Get most recent coordinates
+                let mostRecentLat = null;
+                let mostRecentLon = null;
+                if (group.coordinates.length > 0) {
+                    // Sort by timestamp and get the most recent
+                    group.coordinates.sort((a, b) => b.timestamp - a.timestamp);
+                    mostRecentLat = group.coordinates[0].latitude;
+                    mostRecentLon = group.coordinates[0].longitude;
+                }
+                
                 return {
                     macId: group.macId,
                     count: group.count,
                     mostRecentTimestamp: mostRecentTimestamp,
-                    ignitionStatus: mostRecentIgnitionStatus
+                    ignitionStatus: mostRecentIgnitionStatus,
+                    latitude: mostRecentLat,
+                    longitude: mostRecentLon
                 };
             });
             
@@ -351,6 +424,10 @@
                 const ignitionClass = scan.ignitionStatus === 'ON' ? 'ignition-on' : 
                                      scan.ignitionStatus === 'OFF' ? 'ignition-off' : '';
                 const ignitionDisplay = scan.ignitionStatus !== 'N/A' ? scan.ignitionStatus : 'N/A';
+                const latDisplay = scan.latitude !== null && scan.latitude !== undefined ? 
+                                  scan.latitude.toFixed(6) : 'N/A';
+                const lonDisplay = scan.longitude !== null && scan.longitude !== undefined ? 
+                                  scan.longitude.toFixed(6) : 'N/A';
                 
                 return `
                     <tr>
@@ -358,6 +435,8 @@
                         <td class="mac-id">${scan.macId}</td>
                         <td class="count">${scan.count}</td>
                         <td class="ignition-status ${ignitionClass}">${ignitionDisplay}</td>
+                        <td class="coordinates">${latDisplay}</td>
+                        <td class="coordinates">${lonDisplay}</td>
                     </tr>
                 `;
             }).join('');
@@ -392,7 +471,8 @@
                         macId: macId,
                         count: 0,
                         timestamps: [],
-                        ignitionStatuses: []  // Track all ignition statuses for this MAC
+                        ignitionStatuses: [],  // Track all ignition statuses for this MAC
+                        coordinates: []  // Track all coordinates for this MAC
                     };
                 }
                 
@@ -407,9 +487,18 @@
                         timestamp: scan.timestamp ? new Date(scan.timestamp) : new Date()
                     });
                 }
+                // Store coordinates with timestamp for most recent determination
+                if (scan.latitude !== null && scan.latitude !== undefined && 
+                    scan.longitude !== null && scan.longitude !== undefined) {
+                    macGroups[macId].coordinates.push({
+                        latitude: scan.latitude,
+                        longitude: scan.longitude,
+                        timestamp: scan.timestamp ? new Date(scan.timestamp) : new Date()
+                    });
+                }
             });
             
-            // Convert to array and get most recent timestamp and ignition status for each MAC ID
+            // Convert to array and get most recent timestamp, ignition status, and coordinates for each MAC ID
             const uniqueScans = Object.values(macGroups).map(group => {
                 let mostRecentTimestamp = null;
                 if (group.timestamps.length > 0) {
@@ -424,11 +513,23 @@
                     mostRecentIgnitionStatus = group.ignitionStatuses[0].status;
                 }
                 
+                // Get most recent coordinates
+                let mostRecentLat = null;
+                let mostRecentLon = null;
+                if (group.coordinates.length > 0) {
+                    // Sort by timestamp and get the most recent
+                    group.coordinates.sort((a, b) => b.timestamp - a.timestamp);
+                    mostRecentLat = group.coordinates[0].latitude;
+                    mostRecentLon = group.coordinates[0].longitude;
+                }
+                
                 return {
                     macId: group.macId,
                     count: group.count,
                     mostRecentTimestamp: mostRecentTimestamp,
-                    ignitionStatus: mostRecentIgnitionStatus
+                    ignitionStatus: mostRecentIgnitionStatus,
+                    latitude: mostRecentLat,
+                    longitude: mostRecentLon
                 };
             });
             
@@ -441,7 +542,7 @@
             });
             
             // CSV header
-            const headers = ['Most Recent Timestamp', 'BLE Beacon MAC ID', 'Count', 'Ignition Status'];
+            const headers = ['Most Recent Timestamp', 'BLE Beacon MAC ID', 'Count', 'Ignition Status', 'Latitude', 'Longitude'];
             
             // Convert data to CSV rows
             const csvRows = [headers.join(',')];
@@ -452,12 +553,16 @@
                 const macId = scan.macId;
                 const count = scan.count;
                 const ignitionStatus = scan.ignitionStatus || 'N/A';
+                const lat = scan.latitude !== null && scan.latitude !== undefined ? scan.latitude.toFixed(6) : 'N/A';
+                const lon = scan.longitude !== null && scan.longitude !== undefined ? scan.longitude.toFixed(6) : 'N/A';
                 // Escape commas and quotes in CSV
                 const row = [
                     `"${timestamp.replace(/"/g, '""')}"`,
                     `"${macId.replace(/"/g, '""')}"`,
                     count,
-                    `"${ignitionStatus.replace(/"/g, '""')}"`
+                    `"${ignitionStatus.replace(/"/g, '""')}"`,
+                    lat,
+                    lon
                 ];
                 csvRows.push(row.join(','));
             });
@@ -492,9 +597,81 @@
             }
         }, 2000);
         
+        function viewLogFiles() {
+            // Show/hide log viewer
+            const logViewer = document.getElementById('log-viewer');
+            if (logViewer.style.display === 'none' || !logViewer.style.display) {
+                logViewer.style.display = 'block';
+                loadLogFileList();
+            } else {
+                logViewer.style.display = 'none';
+            }
+        }
+        
+        async function loadLogFileList() {
+            try {
+                const response = await fetch('/api/logs/list');
+                const logFiles = await response.json();
+                const fileListEl = document.getElementById('log-file-list');
+                
+                if (logFiles.length === 0) {
+                    fileListEl.innerHTML = '<li style="padding: 10px; color: #999;">No log files found.</li>';
+                    return;
+                }
+                
+                fileListEl.innerHTML = logFiles.map(file => {
+                    const sizeKB = (file.size / 1024).toFixed(2);
+                    const modDate = new Date(file.modified).toLocaleString();
+                    return `
+                        <li class="log-file-item" onclick="loadLogFile('${file.filename}')">
+                            <strong>${file.filename}</strong><br>
+                            <small>Size: ${sizeKB} KB | Modified: ${modDate}</small>
+                        </li>
+                    `;
+                }).join('');
+            } catch (error) {
+                document.getElementById('log-file-list').innerHTML = 
+                    `<li style="padding: 10px; color: #dc3545;">Error loading log files: ${error.message}</li>`;
+            }
+        }
+        
+        async function loadLogFile(filename) {
+            try {
+                const response = await fetch(`/api/logs/view/${filename}`);
+                const logEntries = await response.json();
+                const logContentEl = document.getElementById('log-content');
+                
+                if (logEntries.length === 0) {
+                    logContentEl.innerHTML = '<p style="color: #999;">Log file is empty.</p>';
+                    return;
+                }
+                
+                // Display log entries in a readable format
+                logContentEl.innerHTML = `
+                    <h4>${filename} (${logEntries.length} entries)</h4>
+                    <pre style="background: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto;">${JSON.stringify(logEntries, null, 2)}</pre>
+                `;
+            } catch (error) {
+                document.getElementById('log-content').innerHTML = 
+                    `<p style="color: #dc3545;">Error loading log file: ${error.message}</p>`;
+            }
+        }
+        
         // Initial load
         fetchBeaconScans();
     </script>
+    
+    <!-- Log File Viewer -->
+    <div class="log-viewer" id="log-viewer">
+        <h3>📋 Log Files</h3>
+        <button onclick="viewLogFiles()" style="float: right; margin-top: -40px;">✕ Close</button>
+        <ul class="log-file-list" id="log-file-list">
+            <li style="padding: 10px; color: #999;">Loading log files...</li>
+        </ul>
+        <div class="log-content" id="log-content">
+            <p style="color: #999;">Select a log file to view its contents.</p>
+        </div>
+    </div>
 </body>
 </html>
 

@@ -6,15 +6,21 @@ import json
 from typing import List, Dict, Any
 import threading
 import os
+from datetime import datetime
 
 
-def make_handler(message_store: List[Dict[str, Any]], beacon_scan_store: List[Dict[str, Any]]):
+def make_handler(message_store: List[Dict[str, Any]], beacon_scan_store: List[Dict[str, Any]], log_dir: str = None):
     """Factory function to create handler class with message_store and beacon_scan_store"""
     class MessageHandler(BaseHTTPRequestHandler):
         """HTTP request handler for serving parsed messages"""
         
         def do_GET(self):
             """Handle GET requests"""
+            # Handle log file requests
+            if self.path.startswith('/api/logs'):
+                self._handle_log_requests()
+                return
+            
             if self.path == '/' or self.path == '/index.html':
                 self.send_response(200)
                 self.send_header('Content-type', 'text/html')
@@ -76,6 +82,78 @@ def make_handler(message_store: List[Dict[str, Any]], beacon_scan_store: List[Di
                 self.end_headers()
                 self.wfile.write(b'Not Found')
         
+        def _handle_log_requests(self):
+            """Handle log file viewing requests"""
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            log_directory = log_dir or os.path.join(script_dir, 'logs')
+            
+            try:
+                if self.path == '/api/logs/list':
+                    # List all log files
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    
+                    log_files = []
+                    if os.path.exists(log_directory):
+                        for filename in sorted(os.listdir(log_directory), reverse=True):
+                            if filename.endswith('.log'):
+                                filepath = os.path.join(log_directory, filename)
+                                file_size = os.path.getsize(filepath)
+                                mod_time = os.path.getmtime(filepath)
+                                log_files.append({
+                                    'filename': filename,
+                                    'size': file_size,
+                                    'modified': datetime.fromtimestamp(mod_time).isoformat()
+                                })
+                    
+                    self.wfile.write(json.dumps(log_files, indent=2).encode('utf-8'))
+                
+                elif self.path.startswith('/api/logs/view/'):
+                    # View a specific log file
+                    filename = self.path.replace('/api/logs/view/', '')
+                    # Security: only allow .log files and prevent directory traversal
+                    if not filename.endswith('.log') or '..' in filename or '/' in filename:
+                        self.send_response(400)
+                        self.end_headers()
+                        self.wfile.write(b'Invalid filename')
+                        return
+                    
+                    filepath = os.path.join(log_directory, filename)
+                    if os.path.exists(filepath) and os.path.isfile(filepath):
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        
+                        # Read and return log file content
+                        log_entries = []
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line:
+                                    try:
+                                        log_entries.append(json.loads(line))
+                                    except json.JSONDecodeError:
+                                        # If not JSON, add as raw text
+                                        log_entries.append({'raw': line})
+                        
+                        self.wfile.write(json.dumps(log_entries, indent=2).encode('utf-8'))
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                        self.wfile.write(b'Log file not found')
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    self.wfile.write(b'Not Found')
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(f'Error: {str(e)}'.encode('utf-8'))
+        
         def log_message(self, format, *args):
             """Override to reduce logging noise"""
             pass
@@ -95,13 +173,17 @@ class WebServer:
     
     def start(self):
         """Start the web server in a separate thread"""
-        handler_class = make_handler(self.message_store, self.beacon_scan_store)
+        # Get log directory from server if available
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        log_dir = os.path.join(script_dir, 'logs')
+        handler_class = make_handler(self.message_store, self.beacon_scan_store, log_dir)
         self.server = HTTPServer(('', self.port), handler_class)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         print(f"Web server started on http://localhost:{self.port}")
         print(f"  - Main page: http://localhost:{self.port}/")
         print(f"  - Beacon table: http://localhost:{self.port}/table.html (or /table.index)")
+        print(f"  - Log files directory: {log_dir}")
     
     def stop(self):
         """Stop the web server"""

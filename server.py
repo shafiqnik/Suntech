@@ -6,6 +6,8 @@ import threading
 from datetime import datetime
 from typing import List, Dict, Any
 from suntech_parser import SuntechParser
+import os
+import json
 
 
 class ThreadedServer:
@@ -22,6 +24,17 @@ class ThreadedServer:
         self.parser = SuntechParser()
         self.lock = threading.Lock()
         self.current_ignition_status = "OFF"  # Track most recent ignition status from STT messages
+        self.current_latitude = None  # Track most recent latitude from STT messages
+        self.current_longitude = None  # Track most recent longitude from STT messages
+        
+        # Setup logging directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.log_dir = os.path.join(script_dir, 'logs')
+        os.makedirs(self.log_dir, exist_ok=True)
+        
+        # Log file path (daily log files)
+        today = datetime.now().strftime('%Y%m%d')
+        self.log_file = os.path.join(self.log_dir, f'beacon_scans_{today}.log')
     
     def listen(self):
         """Start listening for connections"""
@@ -54,13 +67,29 @@ class ThreadedServer:
                             if len(self.message_store) > 1000:
                                 self.message_store.pop(0)
                             
-                            # Update ignition status from STT messages
+                            # Update ignition status, latitude, and longitude from STT messages
                             report_type = parsed.get('report_type', 'Unknown')
                             if 'STT' in report_type or 'Status Report' in report_type:
                                 status = parsed.get('status', {})
                                 ignition_status = status.get('ignition_status', 'OFF')
                                 if ignition_status:
                                     self.current_ignition_status = ignition_status
+                                
+                                # Extract GPS coordinates
+                                gps = parsed.get('gps', {})
+                                if gps:
+                                    lat_str = gps.get('latitude', '')
+                                    lon_str = gps.get('longitude', '')
+                                    if lat_str and lat_str != '0.000000':
+                                        try:
+                                            self.current_latitude = float(lat_str)
+                                        except (ValueError, TypeError):
+                                            pass
+                                    if lon_str and lon_str != '0.000000':
+                                        try:
+                                            self.current_longitude = float(lon_str)
+                                        except (ValueError, TypeError):
+                                            pass
                             
                             # Extract and store BLE beacon scans
                             if 'BDA' in report_type or 'BLE Sensor Data Report' in report_type:
@@ -80,13 +109,19 @@ class ThreadedServer:
                                         
                                         # Store if it matches our criteria OR if it was marked as target
                                         if is_target or sensor.get('is_target_mac', False):
-                                            # Add to beacon scan store with current ignition status
+                                            # Add to beacon scan store with current ignition status and GPS coordinates
                                             beacon_scan = {
                                                 'timestamp': scan_timestamp,
                                                 'mac_id': mac_address,
-                                                'ignition_status': self.current_ignition_status
+                                                'ignition_status': self.current_ignition_status,
+                                                'latitude': self.current_latitude,
+                                                'longitude': self.current_longitude
                                             }
                                             self.beacon_scan_store.append(beacon_scan)
+                                            
+                                            # Log the beacon scan to file
+                                            self._log_beacon_scan(beacon_scan)
+                                            
                                             # Keep only last 10000 scans
                                             if len(self.beacon_scan_store) > 10000:
                                                 self.beacon_scan_store.pop(0)
@@ -122,6 +157,28 @@ class ThreadedServer:
                 print(f"Client {address} disconnected: {e}")
                 client.close()
                 return False
+    
+    def _log_beacon_scan(self, beacon_scan: Dict[str, Any]):
+        """Log beacon scan to file"""
+        try:
+            # Update log file path for today
+            today = datetime.now().strftime('%Y%m%d')
+            self.log_file = os.path.join(self.log_dir, f'beacon_scans_{today}.log')
+            
+            # Format log entry
+            log_entry = {
+                'timestamp': beacon_scan.get('timestamp', ''),
+                'mac_id': beacon_scan.get('mac_id', ''),
+                'ignition_status': beacon_scan.get('ignition_status', 'N/A'),
+                'latitude': beacon_scan.get('latitude'),
+                'longitude': beacon_scan.get('longitude')
+            }
+            
+            # Write to log file (append mode)
+            with open(self.log_file, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(log_entry) + '\n')
+        except Exception as e:
+            print(f"Error logging beacon scan: {e}")
 
 
 if __name__ == "__main__":
