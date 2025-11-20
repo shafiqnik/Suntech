@@ -164,6 +164,8 @@ class SuntechParser:
                     "device_mode": {1: "Driving", 5: "Deactivate Zone"}.get(mode, str(mode)),
                     "report_type_id": rpt_type,
                     "message_number": msg_num,
+                    "ignition_status": "ON" if (in_state & 0x01) == 1 else "OFF",  # Bit 0 of IN_STATE
+                    "ignition_bit": in_state & 0x01,  # Bit 0 value (0 or 1)
                 },
                 "assign_map_custom_headers": f"0x{assign_map:08X}",
                 "raw_trailing_data_length": max(0, len(data) - 58),

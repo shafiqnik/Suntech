@@ -21,6 +21,7 @@ class ThreadedServer:
         self.beacon_scan_store = beacon_scan_store
         self.parser = SuntechParser()
         self.lock = threading.Lock()
+        self.current_ignition_status = "OFF"  # Track most recent ignition status from STT messages
     
     def listen(self):
         """Start listening for connections"""
@@ -53,8 +54,15 @@ class ThreadedServer:
                             if len(self.message_store) > 1000:
                                 self.message_store.pop(0)
                             
-                            # Extract and store BLE beacon scans
+                            # Update ignition status from STT messages
                             report_type = parsed.get('report_type', 'Unknown')
+                            if 'STT' in report_type or 'Status Report' in report_type:
+                                status = parsed.get('status', {})
+                                ignition_status = status.get('ignition_status', 'OFF')
+                                if ignition_status:
+                                    self.current_ignition_status = ignition_status
+                            
+                            # Extract and store BLE beacon scans
                             if 'BDA' in report_type or 'BLE Sensor Data Report' in report_type:
                                 sensors = parsed.get('sensors', [])
                                 scan_timestamp = datetime.now().isoformat()
@@ -72,10 +80,11 @@ class ThreadedServer:
                                         
                                         # Store if it matches our criteria OR if it was marked as target
                                         if is_target or sensor.get('is_target_mac', False):
-                                            # Add to beacon scan store
+                                            # Add to beacon scan store with current ignition status
                                             beacon_scan = {
                                                 'timestamp': scan_timestamp,
-                                                'mac_id': mac_address
+                                                'mac_id': mac_address,
+                                                'ignition_status': self.current_ignition_status
                                             }
                                             self.beacon_scan_store.append(beacon_scan)
                                             # Keep only last 10000 scans

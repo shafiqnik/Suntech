@@ -135,6 +135,20 @@
             font-size: 1.1em;
         }
         
+        .ignition-status {
+            text-align: center;
+            font-weight: bold;
+            font-size: 1.05em;
+        }
+        
+        .ignition-on {
+            color: #28a745;
+        }
+        
+        .ignition-off {
+            color: #dc3545;
+        }
+        
         .no-scans {
             text-align: center;
             padding: 40px;
@@ -212,11 +226,12 @@
                         <th>Most Recent Timestamp</th>
                         <th>BLE Beacon MAC ID</th>
                         <th>Count</th>
+                        <th>Ignition Status</th>
                     </tr>
                 </thead>
                 <tbody id="table-body">
                     <tr>
-                        <td colspan="3" class="no-scans">Loading beacon scans...</td>
+                        <td colspan="4" class="no-scans">Loading beacon scans...</td>
                     </tr>
                 </tbody>
             </table>
@@ -268,7 +283,7 @@
             const tbody = document.getElementById('table-body');
             
             if (beaconScans.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
                 return;
             }
             
@@ -282,7 +297,8 @@
                     macGroups[macId] = {
                         macId: macId,
                         count: 0,
-                        timestamps: []
+                        timestamps: [],
+                        ignitionStatuses: []  // Track all ignition statuses for this MAC
                     };
                 }
                 
@@ -290,9 +306,16 @@
                 if (scan.timestamp) {
                     macGroups[macId].timestamps.push(new Date(scan.timestamp));
                 }
+                // Store ignition status with timestamp for most recent determination
+                if (scan.ignition_status) {
+                    macGroups[macId].ignitionStatuses.push({
+                        status: scan.ignition_status,
+                        timestamp: scan.timestamp ? new Date(scan.timestamp) : new Date()
+                    });
+                }
             });
             
-            // Convert to array and get most recent timestamp for each MAC ID
+            // Convert to array and get most recent timestamp and ignition status for each MAC ID
             const uniqueScans = Object.values(macGroups).map(group => {
                 // Get most recent timestamp
                 let mostRecentTimestamp = null;
@@ -300,10 +323,19 @@
                     mostRecentTimestamp = new Date(Math.max(...group.timestamps));
                 }
                 
+                // Get most recent ignition status
+                let mostRecentIgnitionStatus = 'N/A';
+                if (group.ignitionStatuses.length > 0) {
+                    // Sort by timestamp and get the most recent
+                    group.ignitionStatuses.sort((a, b) => b.timestamp - a.timestamp);
+                    mostRecentIgnitionStatus = group.ignitionStatuses[0].status;
+                }
+                
                 return {
                     macId: group.macId,
                     count: group.count,
-                    mostRecentTimestamp: mostRecentTimestamp
+                    mostRecentTimestamp: mostRecentTimestamp,
+                    ignitionStatus: mostRecentIgnitionStatus
                 };
             });
             
@@ -316,11 +348,16 @@
             });
             
             tbody.innerHTML = uniqueScans.map((scan, index) => {
+                const ignitionClass = scan.ignitionStatus === 'ON' ? 'ignition-on' : 
+                                     scan.ignitionStatus === 'OFF' ? 'ignition-off' : '';
+                const ignitionDisplay = scan.ignitionStatus !== 'N/A' ? scan.ignitionStatus : 'N/A';
+                
                 return `
                     <tr>
                         <td class="timestamp">${scan.mostRecentTimestamp ? formatTimestamp(scan.mostRecentTimestamp.toISOString()) : 'N/A'}</td>
                         <td class="mac-id">${scan.macId}</td>
                         <td class="count">${scan.count}</td>
+                        <td class="ignition-status ${ignitionClass}">${ignitionDisplay}</td>
                     </tr>
                 `;
             }).join('');
@@ -354,7 +391,8 @@
                     macGroups[macId] = {
                         macId: macId,
                         count: 0,
-                        timestamps: []
+                        timestamps: [],
+                        ignitionStatuses: []  // Track all ignition statuses for this MAC
                     };
                 }
                 
@@ -362,19 +400,35 @@
                 if (scan.timestamp) {
                     macGroups[macId].timestamps.push(new Date(scan.timestamp));
                 }
+                // Store ignition status with timestamp for most recent determination
+                if (scan.ignition_status) {
+                    macGroups[macId].ignitionStatuses.push({
+                        status: scan.ignition_status,
+                        timestamp: scan.timestamp ? new Date(scan.timestamp) : new Date()
+                    });
+                }
             });
             
-            // Convert to array and get most recent timestamp for each MAC ID
+            // Convert to array and get most recent timestamp and ignition status for each MAC ID
             const uniqueScans = Object.values(macGroups).map(group => {
                 let mostRecentTimestamp = null;
                 if (group.timestamps.length > 0) {
                     mostRecentTimestamp = new Date(Math.max(...group.timestamps));
                 }
                 
+                // Get most recent ignition status
+                let mostRecentIgnitionStatus = 'N/A';
+                if (group.ignitionStatuses.length > 0) {
+                    // Sort by timestamp and get the most recent
+                    group.ignitionStatuses.sort((a, b) => b.timestamp - a.timestamp);
+                    mostRecentIgnitionStatus = group.ignitionStatuses[0].status;
+                }
+                
                 return {
                     macId: group.macId,
                     count: group.count,
-                    mostRecentTimestamp: mostRecentTimestamp
+                    mostRecentTimestamp: mostRecentTimestamp,
+                    ignitionStatus: mostRecentIgnitionStatus
                 };
             });
             
@@ -387,7 +441,7 @@
             });
             
             // CSV header
-            const headers = ['Most Recent Timestamp', 'BLE Beacon MAC ID', 'Count'];
+            const headers = ['Most Recent Timestamp', 'BLE Beacon MAC ID', 'Count', 'Ignition Status'];
             
             // Convert data to CSV rows
             const csvRows = [headers.join(',')];
@@ -397,11 +451,13 @@
                 const timestamp = scan.mostRecentTimestamp ? formatTimestamp(scan.mostRecentTimestamp.toISOString()) : 'N/A';
                 const macId = scan.macId;
                 const count = scan.count;
+                const ignitionStatus = scan.ignitionStatus || 'N/A';
                 // Escape commas and quotes in CSV
                 const row = [
                     `"${timestamp.replace(/"/g, '""')}"`,
                     `"${macId.replace(/"/g, '""')}"`,
-                    count
+                    count,
+                    `"${ignitionStatus.replace(/"/g, '""')}"`
                 ];
                 csvRows.push(row.join(','));
             });
