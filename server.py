@@ -24,6 +24,7 @@ class ThreadedServer:
         self.parser = SuntechParser()
         self.lock = threading.Lock()
         self.current_ignition_status = "OFF"  # Track most recent ignition status from STT messages
+        self.previous_ignition_status = None  # Track previous ignition status to detect changes
         self.current_latitude = None  # Track most recent latitude from STT messages
         self.current_longitude = None  # Track most recent longitude from STT messages
         
@@ -73,6 +74,30 @@ class ThreadedServer:
                                 status = parsed.get('status', {})
                                 ignition_status = status.get('ignition_status', 'OFF')
                                 if ignition_status:
+                                    # Check if ignition state has changed
+                                    if self.previous_ignition_status is not None and self.previous_ignition_status != ignition_status:
+                                        # Ignition state changed - record it in the table
+                                        change_timestamp = datetime.now().isoformat()
+                                        ignition_change_entry = {
+                                            'timestamp': change_timestamp,
+                                            'mac_id': f'IGNITION_STATE_CHANGE_{ignition_status}',  # Special marker for ignition changes
+                                            'ignition_status': ignition_status,
+                                            'latitude': self.current_latitude,
+                                            'longitude': self.current_longitude,
+                                            'is_ignition_change': True,  # Flag to identify ignition change events
+                                            'previous_status': self.previous_ignition_status,
+                                            'new_status': ignition_status
+                                        }
+                                        self.beacon_scan_store.append(ignition_change_entry)
+                                        
+                                        # Log the ignition state change
+                                        self._log_beacon_scan(ignition_change_entry)
+                                        
+                                        # Keep only last 10000 scans
+                                        if len(self.beacon_scan_store) > 10000:
+                                            self.beacon_scan_store.pop(0)
+                                    
+                                    self.previous_ignition_status = ignition_status
                                     self.current_ignition_status = ignition_status
                                 
                                 # Extract GPS coordinates

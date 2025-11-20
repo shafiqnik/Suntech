@@ -331,7 +331,12 @@
         
         function updateStats() {
             const totalScans = beaconScans.length;
-            const uniqueBeacons = new Set(beaconScans.map(scan => scan.mac_id)).size;
+            // Exclude ignition changes from unique beacons count
+            const regularScans = beaconScans.filter(scan => 
+                !scan.is_ignition_change && 
+                !(scan.mac_id && scan.mac_id.startsWith('IGNITION_STATE_CHANGE_'))
+            );
+            const uniqueBeacons = new Set(regularScans.map(scan => scan.mac_id)).size;
             
             document.getElementById('total-scans').textContent = totalScans;
             document.getElementById('unique-beacons').textContent = uniqueBeacons;
@@ -360,10 +365,24 @@
                 return;
             }
             
-            // Group scans by MAC ID and count duplicates
-            const macGroups = {};
+            // Separate ignition state changes from regular beacon scans
+            const ignitionChanges = [];
+            const regularScans = [];
             
             beaconScans.forEach(scan => {
+                if (scan.is_ignition_change || (scan.mac_id && scan.mac_id.startsWith('IGNITION_STATE_CHANGE_'))) {
+                    // This is an ignition state change event
+                    ignitionChanges.push(scan);
+                } else {
+                    // Regular beacon scan
+                    regularScans.push(scan);
+                }
+            });
+            
+            // Group regular scans by MAC ID and count duplicates
+            const macGroups = {};
+            
+            regularScans.forEach(scan => {
                 const macId = scan.mac_id || 'N/A';
                 
                 if (!macGroups[macId]) {
@@ -436,8 +455,26 @@
                     mostRecentTimestamp: mostRecentTimestamp,
                     ignitionStatus: mostRecentIgnitionStatus,
                     latitude: mostRecentLat,
-                    longitude: mostRecentLon
+                    longitude: mostRecentLon,
+                    isIgnitionChange: false
                 };
+            });
+            
+            // Add ignition state changes as separate entries
+            ignitionChanges.forEach(change => {
+                const changeTimestamp = change.timestamp ? new Date(change.timestamp) : new Date();
+                const previousStatus = change.previous_status || 'Unknown';
+                const newStatus = change.new_status || change.ignition_status || 'Unknown';
+                
+                uniqueScans.push({
+                    macId: `🔌 Ignition: ${previousStatus} → ${newStatus}`,
+                    count: 1,
+                    mostRecentTimestamp: changeTimestamp,
+                    ignitionStatus: newStatus,
+                    latitude: change.latitude || null,
+                    longitude: change.longitude || null,
+                    isIgnitionChange: true
+                });
             });
             
             // Sort by most recent timestamp (newest first)
@@ -466,11 +503,20 @@
                 const lonDisplay = (lon !== null && lon !== undefined && lon !== 0) ? 
                                   parseFloat(lon).toFixed(6) : 'N/A';
                 
+                // Special styling for ignition change events
+                const rowClass = scan.isIgnitionChange ? 'style="background-color: #fff3cd; border-left: 4px solid #ffc107;"' : '';
+                const macDisplay = scan.isIgnitionChange ? 
+                    `<span style="font-weight: bold; color: #856404;">${scan.macId}</span>` : 
+                    `<span class="mac-id">${scan.macId}</span>`;
+                const countDisplay = scan.isIgnitionChange ? 
+                    '<span style="color: #856404;">—</span>' : 
+                    scan.count;
+                
                 return `
-                    <tr>
+                    <tr ${rowClass}>
                         <td class="timestamp">${scan.mostRecentTimestamp ? formatTimestamp(scan.mostRecentTimestamp.toISOString()) : 'N/A'}</td>
-                        <td class="mac-id">${scan.macId}</td>
-                        <td class="count">${scan.count}</td>
+                        <td>${macDisplay}</td>
+                        <td class="count">${countDisplay}</td>
                         <td class="ignition-status ${ignitionClass}">${ignitionDisplay}</td>
                         <td class="coordinates">${latDisplay}</td>
                         <td class="coordinates">${lonDisplay}</td>
@@ -497,10 +543,22 @@
                 return;
             }
             
-            // Group scans by MAC ID and count duplicates (same logic as renderTable)
-            const macGroups = {};
+            // Separate ignition state changes from regular beacon scans (same logic as renderTable)
+            const ignitionChanges = [];
+            const regularScans = [];
             
             beaconScans.forEach(scan => {
+                if (scan.is_ignition_change || (scan.mac_id && scan.mac_id.startsWith('IGNITION_STATE_CHANGE_'))) {
+                    ignitionChanges.push(scan);
+                } else {
+                    regularScans.push(scan);
+                }
+            });
+            
+            // Group regular scans by MAC ID and count duplicates
+            const macGroups = {};
+            
+            regularScans.forEach(scan => {
                 const macId = scan.mac_id || 'N/A';
                 
                 if (!macGroups[macId]) {
@@ -574,6 +632,22 @@
                     latitude: mostRecentLat,
                     longitude: mostRecentLon
                 };
+            });
+            
+            // Add ignition state changes as separate entries
+            ignitionChanges.forEach(change => {
+                const changeTimestamp = change.timestamp ? new Date(change.timestamp) : new Date();
+                const previousStatus = change.previous_status || 'Unknown';
+                const newStatus = change.new_status || change.ignition_status || 'Unknown';
+                
+                uniqueScans.push({
+                    macId: `Ignition: ${previousStatus} → ${newStatus}`,
+                    count: 1,
+                    mostRecentTimestamp: changeTimestamp,
+                    ignitionStatus: newStatus,
+                    latitude: change.latitude || null,
+                    longitude: change.longitude || null
+                });
             });
             
             // Sort by most recent timestamp (newest first)
