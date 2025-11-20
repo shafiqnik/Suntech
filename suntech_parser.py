@@ -264,17 +264,18 @@ class SuntechParser:
                 mac_hex_le = mac_bytes_le.hex().upper()
                 
                 # Check which format matches our target MACs
-                mac_prefix_be = mac_hex_be[:6]  # First 3 bytes big endian
-                mac_prefix_le = mac_hex_le[:6]  # First 3 bytes little endian
+                # Use broader prefixes: AC233 (5 chars) and C300 (4 chars) to catch ALL variants
+                mac_prefix_be_5 = mac_hex_be[:5]  # First 2.5 bytes big endian (AC233)
+                mac_prefix_be_4 = mac_hex_be[:4]  # First 2 bytes big endian (C300)
+                mac_prefix_le_5 = mac_hex_le[:5]  # First 2.5 bytes little endian
+                mac_prefix_le_4 = mac_hex_le[:4]  # First 2 bytes little endian
                 
                 # Determine if this is a target MAC in either format
-                # Support both C30000 and C3000 (user mentioned C3000)
-                is_target_be = (mac_prefix_be.startswith('AC233F') or 
-                               mac_prefix_be.startswith('C30000') or 
-                               mac_prefix_be.startswith('C3000'))
-                is_target_le = (mac_prefix_le.startswith('AC233F') or 
-                               mac_prefix_le.startswith('C30000') or 
-                               mac_prefix_le.startswith('C3000'))
+                # Match ALL beacons starting with AC233 or C300 (not just specific patterns)
+                is_target_be = (mac_prefix_be_5.startswith('AC233') or 
+                               mac_prefix_be_4.startswith('C300'))
+                is_target_le = (mac_prefix_le_5.startswith('AC233') or 
+                               mac_prefix_le_4.startswith('C300'))
                 
                 # Use the format that matches target, or default to big endian
                 if is_target_le and not is_target_be:
@@ -288,13 +289,13 @@ class SuntechParser:
                     mac_bytes_final = mac_bytes
                     endian = 'big'
                 
-                # Format MAC address: AC:23:3F or C3:00:00 or C3:00:0X
+                # Format MAC address: AC:23:3F:XX:XX:XX or C3:00:XX:XX:XX:XX
                 mac_formatted = ':'.join([mac_hex[i:i+2] for i in range(0, len(mac_hex), 2)])
-                mac_prefix = mac_hex[:6]
-                # Check if target MAC (support AC233F, C30000, or C3000)
-                is_target = (mac_prefix.startswith('AC233F') or 
-                           mac_prefix.startswith('C30000') or 
-                           mac_prefix.startswith('C3000') or 
+                mac_prefix_5 = mac_hex[:5]
+                mac_prefix_4 = mac_hex[:4]
+                # Check if target MAC - match ALL starting with AC233 or C300
+                is_target = (mac_prefix_5.startswith('AC233') or 
+                           mac_prefix_4.startswith('C300') or 
                            is_target_le)
                 
                 return {
@@ -306,6 +307,7 @@ class SuntechParser:
                 }
             
             # Try to parse sensors using the expected structure
+            # IMPORTANT: Parse ALL sensors, not just target ones, to ensure nothing is missed
             for sensor_idx in range(ble_sen_cnt):
                 if idx >= len(data):
                     break
@@ -339,7 +341,12 @@ class SuntechParser:
                 sensor_data['mac_address_raw'] = mac_info['mac_hex']
                 sensor_data['mac_bytes_original'] = mac_info['mac_bytes_original']
                 sensor_data['mac_endian'] = mac_info['endian']
-                sensor_data['is_target_mac'] = mac_info['is_target']
+                
+                # Check if MAC starts with AC233 or C300 (broader matching)
+                mac_hex_upper = mac_info['mac_hex'].upper()
+                is_target = (mac_hex_upper.startswith('AC233') or 
+                           mac_hex_upper.startswith('C300'))
+                sensor_data['is_target_mac'] = is_target
                 
                 # BLE_SEN_RSSI (1 byte)
                 if idx + 1 > len(data):
@@ -354,16 +361,17 @@ class SuntechParser:
                 sensor_data['rssi'] = rssi_value
                 sensor_data['rssi_hex'] = f"0x{rssi_byte:02X}"
                 
+                # Add ALL sensors to the list (not just target ones)
                 sensors.append(sensor_data)
             
-            # Always scan the entire raw data for BLE beacons/tags starting with AC233F or C3000/C30000
+            # Always scan the entire raw data for BLE beacons/tags starting with AC233 or C300
             # This ensures we catch all beacons even if they're embedded in advertisement data
             data_hex_upper = data.hex().upper()
             
-            # Always scan the entire raw data for BLE beacons/tags starting with AC233F or C3000/C30000
+            # Always scan the entire raw data for BLE beacons/tags starting with AC233 or C300
             # This ensures we catch all beacons even if they're embedded in advertisement data
-            # Use longer prefixes first to avoid partial matches (C30000 before C3000)
-            target_prefixes = ['AC233F', 'C30000', 'C3000', '3F23AC', '0000C3', '000C3']
+            # Use broader prefixes to catch ALL variants: AC233 (5 chars) and C300 (4 chars)
+            target_prefixes = ['AC233', 'C300', '332CA', '003C']  # Also check little endian variants
             
             # Track found MAC addresses to avoid duplicates (use full 12-char hex MAC as key)
             found_macs = set()
@@ -376,10 +384,9 @@ class SuntechParser:
                 mac_info = extract_mac(mac_bytes)
                 mac_hex = mac_info['mac_hex']
                 
-                # Check if this is a target MAC (AC233F or C3000/C30000)
-                is_target = (mac_hex.startswith('AC233F') or 
-                           mac_hex.startswith('C30000') or 
-                           mac_hex.startswith('C3000'))
+                # Check if this is a target MAC - match ALL starting with AC233 or C300
+                is_target = (mac_hex.startswith('AC233') or 
+                           mac_hex.startswith('C300'))
                 
                 if is_target:
                     # Create unique key to avoid duplicates

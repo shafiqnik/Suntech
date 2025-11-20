@@ -59,11 +59,19 @@ class ThreadedServer:
                                 sensors = parsed.get('sensors', [])
                                 scan_timestamp = datetime.now().isoformat()
                                 
-                                # Extract all target beacons (AC233F or C3000)
+                                # Extract ALL beacons starting with AC233 or C300 (not just target ones)
+                                # Also include all sensors to ensure nothing is missed
                                 for sensor in sensors:
-                                    if sensor.get('is_target_mac', False):
-                                        mac_address = sensor.get('mac_address') or sensor.get('mac_address_raw', 'N/A')
-                                        if mac_address and mac_address != 'N/A':
+                                    mac_address = sensor.get('mac_address') or sensor.get('mac_address_raw', 'N/A')
+                                    if mac_address and mac_address != 'N/A':
+                                        # Check if MAC starts with AC233 or C300 (case insensitive)
+                                        mac_upper = mac_address.upper().replace(':', '')
+                                        # Match AC233 (5 chars) or C300 (4 chars)
+                                        is_target = (mac_upper.startswith('AC233') or 
+                                                   mac_upper.startswith('C300'))
+                                        
+                                        # Store if it matches our criteria OR if it was marked as target
+                                        if is_target or sensor.get('is_target_mac', False):
                                             # Add to beacon scan store
                                             beacon_scan = {
                                                 'timestamp': scan_timestamp,
