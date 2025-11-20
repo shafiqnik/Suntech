@@ -458,9 +458,12 @@
         }
         
         function renderBDAMessage(msg) {
+            // Always show beacons prominently at the top
+            let beaconsHtml = '';
             let sensorsHtml = '';
             let macAddressesList = [];
             
+            // Extract all beacons from sensors array
             if (msg.sensors && Array.isArray(msg.sensors) && msg.sensors.length > 0) {
                 // Collect all MAC addresses for summary
                 msg.sensors.forEach((sensor, idx) => {
@@ -470,7 +473,8 @@
                             index: idx + 1,
                             mac: mac,
                             isTarget: sensor.is_target_mac || false,
-                            rssi: sensor.rssi
+                            rssi: sensor.rssi,
+                            position: sensor.byte_position !== undefined ? `Byte ${sensor.byte_position}` : 'N/A'
                         });
                     }
                 });
@@ -579,7 +583,63 @@
                 `;
             }
             
+            // Create prominent beacon display at the top
+            const targetBeacons = macAddressesList.filter(m => m.isTarget);
+            if (targetBeacons.length > 0) {
+                beaconsHtml = `
+                    <div style="background: #f0fff4; border: 3px solid #28a745; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                        <h2 style="color: #28a745; margin-bottom: 15px;">🎯 Detected BLE Beacons/Tags: ${targetBeacons.length}</h2>
+                        <table class="nested-table" style="width: 100%;">
+                            <tr style="background: #28a745; color: white;">
+                                <th style="padding: 12px;">#</th>
+                                <th style="padding: 12px;">Beacon ID (MAC Address)</th>
+                                <th style="padding: 12px;">Type</th>
+                                <th style="padding: 12px;">RSSI</th>
+                                <th style="padding: 12px;">Position</th>
+                            </tr>
+                            ${targetBeacons.map((macInfo, idx) => {
+                                const macRaw = macInfo.mac.toUpperCase().replace(/:/g, '');
+                                const beaconType = macRaw.startsWith('AC233F') ? 'AC233F Tag' : 
+                                                 (macRaw.startsWith('C30000') || macRaw.startsWith('C3000') ? 'C3000 Tag' : 'Target Tag');
+                                return `
+                                    <tr style="background: ${idx % 2 === 0 ? '#ffffff' : '#f8f9fa'};">
+                                        <td style="padding: 10px; font-weight: bold;">${idx + 1}</td>
+                                        <td style="padding: 10px; color: #28a745; font-weight: bold; font-size: 1.1em;"><strong>${macInfo.mac}</strong></td>
+                                        <td style="padding: 10px;"><span style="background: #28a745; color: white; padding: 4px 8px; border-radius: 3px; font-weight: bold;">${beaconType}</span></td>
+                                        <td style="padding: 10px;">${macInfo.rssi !== undefined ? macInfo.rssi + ' dBm' : 'N/A'}</td>
+                                        <td style="padding: 10px;"><small>${macInfo.position || 'N/A'}</small></td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </table>
+                    </div>
+                `;
+            } else if (msg.sensors && msg.sensors.length > 0) {
+                // Show message if sensors found but no target beacons
+                beaconsHtml = `
+                    <div style="background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                        <p style="margin: 0;"><strong>Note:</strong> ${msg.sensors.length} BLE device(s) detected, but no target beacons (AC233F/C3000) found.</p>
+                    </div>
+                `;
+            } else {
+                // Try to extract from raw data if sensors not parsed
+                if (msg.raw_data) {
+                    const rawUpper = msg.raw_data.toUpperCase();
+                    const acCount = (rawUpper.match(/AC233F/g) || []).length;
+                    const c3Count = (rawUpper.match(/C30000/g) || []).length + (rawUpper.match(/C3000(?!0)/g) || []).length;
+                    if (acCount > 0 || c3Count > 0) {
+                        beaconsHtml = `
+                            <div style="background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                                <p style="margin: 0;"><strong>Warning:</strong> Beacon patterns detected in raw data (AC233F: ${acCount}, C3000: ${c3Count}) but parsing incomplete. Check raw data below.</p>
+                            </div>
+                        `;
+                    }
+                }
+            }
+            
             return `
+                ${beaconsHtml}
+                
                 <table>
                     <tr><th>Field</th><th>Value</th></tr>
                     <tr><td>Device ID (ESN)</td><td>${msg.device_id_esn || 'N/A'}</td></tr>
