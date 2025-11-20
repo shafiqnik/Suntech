@@ -128,6 +128,13 @@
             color: #495057;
         }
         
+        .count {
+            text-align: center;
+            font-weight: bold;
+            color: #667eea;
+            font-size: 1.1em;
+        }
+        
         .no-scans {
             text-align: center;
             padding: 40px;
@@ -182,6 +189,7 @@
         
         <div class="controls">
             <button onclick="refreshTable()">🔄 Refresh</button>
+            <button onclick="exportToCSV()">📥 Export to CSV</button>
             <button onclick="clearTable()">🗑️ Clear All</button>
             <span class="status" id="status">Loading...</span>
         </div>
@@ -201,13 +209,14 @@
             <table id="beacon-table">
                 <thead>
                     <tr>
-                        <th>Timestamp</th>
+                        <th>Most Recent Timestamp</th>
                         <th>BLE Beacon MAC ID</th>
+                        <th>Count</th>
                     </tr>
                 </thead>
                 <tbody id="table-body">
                     <tr>
-                        <td colspan="2" class="no-scans">Loading beacon scans...</td>
+                        <td colspan="3" class="no-scans">Loading beacon scans...</td>
                     </tr>
                 </tbody>
             </table>
@@ -259,18 +268,59 @@
             const tbody = document.getElementById('table-body');
             
             if (beaconScans.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="2" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="3" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
                 return;
             }
             
-            // Show newest first (reverse order)
-            const reversedScans = [...beaconScans].reverse();
+            // Group scans by MAC ID and count duplicates
+            const macGroups = {};
             
-            tbody.innerHTML = reversedScans.map((scan, index) => {
+            beaconScans.forEach(scan => {
+                const macId = scan.mac_id || 'N/A';
+                
+                if (!macGroups[macId]) {
+                    macGroups[macId] = {
+                        macId: macId,
+                        count: 0,
+                        timestamps: []
+                    };
+                }
+                
+                macGroups[macId].count++;
+                if (scan.timestamp) {
+                    macGroups[macId].timestamps.push(new Date(scan.timestamp));
+                }
+            });
+            
+            // Convert to array and get most recent timestamp for each MAC ID
+            const uniqueScans = Object.values(macGroups).map(group => {
+                // Get most recent timestamp
+                let mostRecentTimestamp = null;
+                if (group.timestamps.length > 0) {
+                    mostRecentTimestamp = new Date(Math.max(...group.timestamps));
+                }
+                
+                return {
+                    macId: group.macId,
+                    count: group.count,
+                    mostRecentTimestamp: mostRecentTimestamp
+                };
+            });
+            
+            // Sort by most recent timestamp (newest first)
+            uniqueScans.sort((a, b) => {
+                if (!a.mostRecentTimestamp && !b.mostRecentTimestamp) return 0;
+                if (!a.mostRecentTimestamp) return 1;
+                if (!b.mostRecentTimestamp) return -1;
+                return b.mostRecentTimestamp - a.mostRecentTimestamp;
+            });
+            
+            tbody.innerHTML = uniqueScans.map((scan, index) => {
                 return `
                     <tr>
-                        <td class="timestamp">${formatTimestamp(scan.timestamp)}</td>
-                        <td class="mac-id">${scan.mac_id || 'N/A'}</td>
+                        <td class="timestamp">${scan.mostRecentTimestamp ? formatTimestamp(scan.mostRecentTimestamp.toISOString()) : 'N/A'}</td>
+                        <td class="mac-id">${scan.macId}</td>
+                        <td class="count">${scan.count}</td>
                     </tr>
                 `;
             }).join('');
@@ -286,6 +336,97 @@
                 renderTable();
                 updateStats();
             }
+        }
+        
+        function exportToCSV() {
+            if (beaconScans.length === 0) {
+                alert('No data to export. Please wait for beacon scans to be recorded.');
+                return;
+            }
+            
+            // Group scans by MAC ID and count duplicates (same logic as renderTable)
+            const macGroups = {};
+            
+            beaconScans.forEach(scan => {
+                const macId = scan.mac_id || 'N/A';
+                
+                if (!macGroups[macId]) {
+                    macGroups[macId] = {
+                        macId: macId,
+                        count: 0,
+                        timestamps: []
+                    };
+                }
+                
+                macGroups[macId].count++;
+                if (scan.timestamp) {
+                    macGroups[macId].timestamps.push(new Date(scan.timestamp));
+                }
+            });
+            
+            // Convert to array and get most recent timestamp for each MAC ID
+            const uniqueScans = Object.values(macGroups).map(group => {
+                let mostRecentTimestamp = null;
+                if (group.timestamps.length > 0) {
+                    mostRecentTimestamp = new Date(Math.max(...group.timestamps));
+                }
+                
+                return {
+                    macId: group.macId,
+                    count: group.count,
+                    mostRecentTimestamp: mostRecentTimestamp
+                };
+            });
+            
+            // Sort by most recent timestamp (newest first)
+            uniqueScans.sort((a, b) => {
+                if (!a.mostRecentTimestamp && !b.mostRecentTimestamp) return 0;
+                if (!a.mostRecentTimestamp) return 1;
+                if (!b.mostRecentTimestamp) return -1;
+                return b.mostRecentTimestamp - a.mostRecentTimestamp;
+            });
+            
+            // CSV header
+            const headers = ['Most Recent Timestamp', 'BLE Beacon MAC ID', 'Count'];
+            
+            // Convert data to CSV rows
+            const csvRows = [headers.join(',')];
+            
+            // Add data rows
+            uniqueScans.forEach(scan => {
+                const timestamp = scan.mostRecentTimestamp ? formatTimestamp(scan.mostRecentTimestamp.toISOString()) : 'N/A';
+                const macId = scan.macId;
+                const count = scan.count;
+                // Escape commas and quotes in CSV
+                const row = [
+                    `"${timestamp.replace(/"/g, '""')}"`,
+                    `"${macId.replace(/"/g, '""')}"`,
+                    count
+                ];
+                csvRows.push(row.join(','));
+            });
+            
+            // Create CSV content
+            const csvContent = csvRows.join('\n');
+            
+            // Create blob and download
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            // Generate filename with current date/time
+            const now = new Date();
+            const filename = `ble_beacon_scans_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}.csv`;
+            
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            const uniqueCount = uniqueScans.length;
+            updateStatus('connected', `CSV exported successfully - ${uniqueCount} unique MAC ID(s), ${beaconScans.length} total scan(s)`);
         }
         
         // Auto-refresh every 2 seconds
