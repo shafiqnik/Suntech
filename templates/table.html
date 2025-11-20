@@ -287,6 +287,18 @@
                 </tbody>
             </table>
         </div>
+        
+        <!-- Log File Viewer -->
+        <div class="log-viewer" id="log-viewer">
+            <h3>📋 Log Files</h3>
+            <button onclick="viewLogFiles()" style="float: right; margin-top: -40px;">✕ Close</button>
+            <ul class="log-file-list" id="log-file-list">
+                <li style="padding: 10px; color: #999;">Loading log files...</li>
+            </ul>
+            <div class="log-content" id="log-content">
+                <p style="color: #999;">Select a log file to view its contents.</p>
+            </div>
+        </div>
     </div>
     
     <script>
@@ -298,11 +310,16 @@
                 const response = await fetch('/api/beacon-scans');
                 const data = await response.json();
                 beaconScans = data;
+                // Debug: log first scan to verify data structure
+                if (beaconScans.length > 0) {
+                    console.log('Sample beacon scan:', beaconScans[0]);
+                }
                 updateStatus('connected', `Connected - ${beaconScans.length} scan(s) recorded`);
                 updateStats();
                 renderTable();
             } catch (error) {
                 updateStatus('error', 'Error fetching beacon scans: ' + error.message);
+                console.error('Error fetching beacon scans:', error);
             }
         }
         
@@ -333,6 +350,11 @@
         function renderTable() {
             const tbody = document.getElementById('table-body');
             
+            console.log('Rendering table with', beaconScans.length, 'scans');
+            if (beaconScans.length > 0) {
+                console.log('First scan data:', beaconScans[0]);
+            }
+            
             if (beaconScans.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="6" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
                 return;
@@ -359,18 +381,24 @@
                     macGroups[macId].timestamps.push(new Date(scan.timestamp));
                 }
                 // Store ignition status with timestamp for most recent determination
-                if (scan.ignition_status) {
+                // Check both ignition_status and ignitionStatus (defensive)
+                const ignitionStatus = scan.ignition_status || scan.ignitionStatus;
+                if (ignitionStatus) {
                     macGroups[macId].ignitionStatuses.push({
-                        status: scan.ignition_status,
+                        status: ignitionStatus,
                         timestamp: scan.timestamp ? new Date(scan.timestamp) : new Date()
                     });
                 }
                 // Store coordinates with timestamp for most recent determination
-                if (scan.latitude !== null && scan.latitude !== undefined && 
-                    scan.longitude !== null && scan.longitude !== undefined) {
+                // Check both latitude/longitude and lat/lon (defensive)
+                const lat = scan.latitude !== null && scan.latitude !== undefined ? scan.latitude : 
+                           (scan.lat !== null && scan.lat !== undefined ? scan.lat : null);
+                const lon = scan.longitude !== null && scan.longitude !== undefined ? scan.longitude : 
+                           (scan.lon !== null && scan.lon !== undefined ? scan.lon : null);
+                if (lat !== null && lon !== null) {
                     macGroups[macId].coordinates.push({
-                        latitude: scan.latitude,
-                        longitude: scan.longitude,
+                        latitude: lat,
+                        longitude: lon,
                         timestamp: scan.timestamp ? new Date(scan.timestamp) : new Date()
                     });
                 }
@@ -420,14 +448,23 @@
                 return b.mostRecentTimestamp - a.mostRecentTimestamp;
             });
             
+            if (uniqueScans.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
+                return;
+            }
+            
             tbody.innerHTML = uniqueScans.map((scan, index) => {
-                const ignitionClass = scan.ignitionStatus === 'ON' ? 'ignition-on' : 
-                                     scan.ignitionStatus === 'OFF' ? 'ignition-off' : '';
-                const ignitionDisplay = scan.ignitionStatus !== 'N/A' ? scan.ignitionStatus : 'N/A';
-                const latDisplay = scan.latitude !== null && scan.latitude !== undefined ? 
-                                  scan.latitude.toFixed(6) : 'N/A';
-                const lonDisplay = scan.longitude !== null && scan.longitude !== undefined ? 
-                                  scan.longitude.toFixed(6) : 'N/A';
+                const ignitionStatus = scan.ignitionStatus || 'N/A';
+                const ignitionClass = ignitionStatus === 'ON' ? 'ignition-on' : 
+                                     ignitionStatus === 'OFF' ? 'ignition-off' : '';
+                const ignitionDisplay = ignitionStatus !== 'N/A' ? ignitionStatus : 'N/A';
+                
+                const lat = scan.latitude;
+                const lon = scan.longitude;
+                const latDisplay = (lat !== null && lat !== undefined && lat !== 0) ? 
+                                  parseFloat(lat).toFixed(6) : 'N/A';
+                const lonDisplay = (lon !== null && lon !== undefined && lon !== 0) ? 
+                                  parseFloat(lon).toFixed(6) : 'N/A';
                 
                 return `
                     <tr>
@@ -481,18 +518,24 @@
                     macGroups[macId].timestamps.push(new Date(scan.timestamp));
                 }
                 // Store ignition status with timestamp for most recent determination
-                if (scan.ignition_status) {
+                // Check both ignition_status and ignitionStatus (defensive)
+                const ignitionStatus = scan.ignition_status || scan.ignitionStatus;
+                if (ignitionStatus) {
                     macGroups[macId].ignitionStatuses.push({
-                        status: scan.ignition_status,
+                        status: ignitionStatus,
                         timestamp: scan.timestamp ? new Date(scan.timestamp) : new Date()
                     });
                 }
                 // Store coordinates with timestamp for most recent determination
-                if (scan.latitude !== null && scan.latitude !== undefined && 
-                    scan.longitude !== null && scan.longitude !== undefined) {
+                // Check both latitude/longitude and lat/lon (defensive)
+                const lat = scan.latitude !== null && scan.latitude !== undefined ? scan.latitude : 
+                           (scan.lat !== null && scan.lat !== undefined ? scan.lat : null);
+                const lon = scan.longitude !== null && scan.longitude !== undefined ? scan.longitude : 
+                           (scan.lon !== null && scan.lon !== undefined ? scan.lon : null);
+                if (lat !== null && lon !== null) {
                     macGroups[macId].coordinates.push({
-                        latitude: scan.latitude,
-                        longitude: scan.longitude,
+                        latitude: lat,
+                        longitude: lon,
                         timestamp: scan.timestamp ? new Date(scan.timestamp) : new Date()
                     });
                 }
@@ -660,18 +703,6 @@
         // Initial load
         fetchBeaconScans();
     </script>
-    
-    <!-- Log File Viewer -->
-    <div class="log-viewer" id="log-viewer">
-        <h3>📋 Log Files</h3>
-        <button onclick="viewLogFiles()" style="float: right; margin-top: -40px;">✕ Close</button>
-        <ul class="log-file-list" id="log-file-list">
-            <li style="padding: 10px; color: #999;">Loading log files...</li>
-        </ul>
-        <div class="log-content" id="log-content">
-            <p style="color: #999;">Select a log file to view its contents.</p>
-        </div>
-    </div>
 </body>
 </html>
 
