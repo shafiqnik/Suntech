@@ -280,7 +280,7 @@
                         <th>Input Voltage</th>
                         <th>BLE MAC Count</th>
                         <th>RSSI</th>
-                        <th>BLE Raw Data</th>
+                        <th>Battery Level</th>
                         <th>Latitude</th>
                         <th>Longitude</th>
                     </tr>
@@ -387,6 +387,11 @@
                 return;
             }
             
+            if (uniqueScans.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="11" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
+                return;
+            }
+            
             // Separate ignition state changes from regular beacon scans
             const ignitionChanges = [];
             const regularScans = [];
@@ -489,11 +494,11 @@
                     mostRecentFrequency = scansWithFrequency[0].frequency_seconds;
                 }
                 
-                // Get most recent input voltage, BLE MAC count, RSSI, and raw data
+                // Get most recent input voltage, BLE MAC count, RSSI, and battery level
                 let mostRecentInputVoltage = null;
                 let mostRecentBleMacCount = null;
                 let mostRecentRssi = null;
-                let mostRecentBleRawData = null;
+                let mostRecentBatteryLevel = null;
                 const scansWithStatus = regularScans.filter(scan => scan.mac_id === group.macId);
                 if (scansWithStatus.length > 0) {
                     // Sort by timestamp descending and get the most recent status fields
@@ -506,7 +511,7 @@
                     mostRecentInputVoltage = mostRecentScan.input_voltage !== null && mostRecentScan.input_voltage !== undefined ? mostRecentScan.input_voltage : null;
                     mostRecentBleMacCount = mostRecentScan.ble_mac_count !== null && mostRecentScan.ble_mac_count !== undefined ? mostRecentScan.ble_mac_count : null;
                     mostRecentRssi = mostRecentScan.rssi !== null && mostRecentScan.rssi !== undefined ? mostRecentScan.rssi : null;
-                    mostRecentBleRawData = mostRecentScan.ble_raw_data || null;
+                    mostRecentBatteryLevel = mostRecentScan.battery_level !== null && mostRecentScan.battery_level !== undefined ? mostRecentScan.battery_level : null;
                 }
                 
                 return {
@@ -518,7 +523,7 @@
                     inputVoltage: mostRecentInputVoltage,
                     bleMacCount: mostRecentBleMacCount,
                     rssi: mostRecentRssi,
-                    bleRawData: mostRecentBleRawData,
+                    batteryLevel: mostRecentBatteryLevel,
                     latitude: mostRecentLat,
                     longitude: mostRecentLon,
                     isIgnitionChange: false
@@ -539,7 +544,7 @@
                     inputVoltage: change.input_voltage !== null && change.input_voltage !== undefined ? change.input_voltage : null,
                     bleMacCount: null,
                     rssi: null,
-                    bleRawData: null,
+                    batteryLevel: null,
                     latitude: change.latitude || null,
                     longitude: change.longitude || null,
                     isIgnitionChange: true
@@ -600,18 +605,19 @@
                     '<span style="color: #856404;">—</span>' : 
                     (scan.rssi !== null && scan.rssi !== undefined ? `${scan.rssi} dBm` : 'N/A');
                 
-                // Format BLE Raw Data: show hex string (truncate if too long)
-                let bleRawDataDisplay = 'N/A';
-                if (scan.bleRawData) {
-                    const rawDataStr = scan.bleRawData.toString().toUpperCase();
-                    // Truncate if longer than 50 characters, show first 50 + "..."
-                    if (rawDataStr.length > 50) {
-                        bleRawDataDisplay = `<span title="${rawDataStr}">${rawDataStr.substring(0, 50)}...</span>`;
-                    } else {
-                        bleRawDataDisplay = rawDataStr;
+                // Format Battery Level: show percentage with color coding
+                let batteryLevelDisplay = 'N/A';
+                if (scan.batteryLevel !== null && scan.batteryLevel !== undefined) {
+                    const batteryPercent = scan.batteryLevel;
+                    let batteryColor = '#28a745'; // Green for high battery
+                    if (batteryPercent < 20) {
+                        batteryColor = '#dc3545'; // Red for low battery
+                    } else if (batteryPercent < 50) {
+                        batteryColor = '#ffc107'; // Yellow for medium battery
                     }
+                    batteryLevelDisplay = `<span style="color: ${batteryColor}; font-weight: bold;">${batteryPercent}%</span>`;
                 } else if (scan.isIgnitionChange) {
-                    bleRawDataDisplay = '<span style="color: #856404;">—</span>';
+                    batteryLevelDisplay = '<span style="color: #856404;">—</span>';
                 }
                 
                 return `
@@ -624,7 +630,7 @@
                         <td class="ignition-status">${inputVoltageDisplay}</td>
                         <td class="count">${bleMacCountDisplay}</td>
                         <td class="count">${rssiDisplay}</td>
-                        <td class="coordinates" style="font-family: 'Courier New', monospace; font-size: 0.85em; max-width: 300px; word-break: break-all;">${bleRawDataDisplay}</td>
+                        <td class="count">${batteryLevelDisplay}</td>
                         <td class="coordinates">${latDisplay}</td>
                         <td class="coordinates">${lonDisplay}</td>
                     </tr>
@@ -747,11 +753,11 @@
                     mostRecentFrequency = scansWithFrequency[0].frequency_seconds;
                 }
                 
-                // Get most recent input voltage, BLE MAC count, RSSI, and raw data
+                // Get most recent input voltage, BLE MAC count, RSSI, and battery level
                 let mostRecentInputVoltage = null;
                 let mostRecentBleMacCount = null;
                 let mostRecentRssi = null;
-                let mostRecentBleRawData = null;
+                let mostRecentBatteryLevel = null;
                 const scansWithStatus = regularScans.filter(scan => scan.mac_id === group.macId);
                 if (scansWithStatus.length > 0) {
                     scansWithStatus.sort((a, b) => {
@@ -763,7 +769,7 @@
                     mostRecentInputVoltage = mostRecentScan.input_voltage !== null && mostRecentScan.input_voltage !== undefined ? mostRecentScan.input_voltage : null;
                     mostRecentBleMacCount = mostRecentScan.ble_mac_count !== null && mostRecentScan.ble_mac_count !== undefined ? mostRecentScan.ble_mac_count : null;
                     mostRecentRssi = mostRecentScan.rssi !== null && mostRecentScan.rssi !== undefined ? mostRecentScan.rssi : null;
-                    mostRecentBleRawData = mostRecentScan.ble_raw_data || null;
+                    mostRecentBatteryLevel = mostRecentScan.battery_level !== null && mostRecentScan.battery_level !== undefined ? mostRecentScan.battery_level : null;
                 }
                 
                 return {
@@ -775,7 +781,7 @@
                     inputVoltage: mostRecentInputVoltage,
                     bleMacCount: mostRecentBleMacCount,
                     rssi: mostRecentRssi,
-                    bleRawData: mostRecentBleRawData,
+                    batteryLevel: mostRecentBatteryLevel,
                     latitude: mostRecentLat,
                     longitude: mostRecentLon
                 };
@@ -795,7 +801,7 @@
                     inputVoltage: change.input_voltage !== null && change.input_voltage !== undefined ? change.input_voltage : null,
                     bleMacCount: null,
                     rssi: null,
-                    bleRawData: null,
+                    batteryLevel: null,
                     latitude: change.latitude || null,
                     longitude: change.longitude || null
                 });
@@ -810,7 +816,7 @@
             });
             
             // CSV header
-            const headers = ['Most Recent Timestamp', 'BLE Beacon MAC ID', 'Count', 'Frequency (seconds)', 'Ignition Status', 'Input Voltage (V)', 'BLE MAC Count', 'RSSI (dBm)', 'BLE Raw Data', 'Latitude', 'Longitude'];
+            const headers = ['Most Recent Timestamp', 'BLE Beacon MAC ID', 'Count', 'Frequency (seconds)', 'Ignition Status', 'Input Voltage (V)', 'BLE MAC Count', 'RSSI (dBm)', 'Battery Level (%)', 'Latitude', 'Longitude'];
             
             // Convert data to CSV rows
             const csvRows = [headers.join(',')];
@@ -826,7 +832,7 @@
                 const inputVoltage = scan.inputVoltage !== null && scan.inputVoltage !== undefined ? (scan.inputVoltage / 1000.0).toFixed(2) : 'N/A';
                 const bleMacCount = scan.bleMacCount !== null && scan.bleMacCount !== undefined ? scan.bleMacCount : 'N/A';
                 const rssi = scan.rssi !== null && scan.rssi !== undefined ? scan.rssi : 'N/A';
-                const bleRawData = scan.bleRawData || 'N/A';
+                const batteryLevel = scan.batteryLevel !== null && scan.batteryLevel !== undefined ? scan.batteryLevel : 'N/A';
                 const lat = scan.latitude !== null && scan.latitude !== undefined ? scan.latitude.toFixed(6) : 'N/A';
                 const lon = scan.longitude !== null && scan.longitude !== undefined ? scan.longitude.toFixed(6) : 'N/A';
                 // Escape commas and quotes in CSV
@@ -839,7 +845,7 @@
                     inputVoltage,
                     bleMacCount,
                     rssi,
-                    `"${bleRawData.toString().replace(/"/g, '""')}"`,
+                    batteryLevel,
                     lat,
                     lon
                 ];

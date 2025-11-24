@@ -79,6 +79,42 @@ class SuntechParser:
         return value / 1_000_000.0
     
     @staticmethod
+    def extract_battery_level(raw_data_hex: str) -> int:
+        """Extract battery level from BLE raw data.
+        Battery level is preceded by the pattern '0201060303e1ff1216e1ffa108' and is a 2-character hex value.
+        Returns battery level as percentage (0-100), or None if not found.
+        """
+        if not raw_data_hex:
+            return None
+        
+        # Convert to uppercase and remove spaces for matching
+        raw_data_upper = raw_data_hex.upper().replace(' ', '')
+        
+        # Pattern to search for (without spaces)
+        pattern = '0201060303E1FF1216E1FFA108'
+        
+        # Find the pattern in the raw data
+        pattern_pos = raw_data_upper.find(pattern)
+        
+        if pattern_pos == -1:
+            return None
+        
+        # Battery level is the next 2 hex characters after the pattern
+        battery_start = pattern_pos + len(pattern)
+        
+        if battery_start + 2 > len(raw_data_upper):
+            return None
+        
+        try:
+            # Extract the 2-character hex value
+            battery_hex = raw_data_upper[battery_start:battery_start + 2]
+            # Convert hex to decimal (0x64 = 100)
+            battery_level = int(battery_hex, 16)
+            return battery_level
+        except (ValueError, IndexError):
+            return None
+    
+    @staticmethod
     def parse_stt_report(data: bytes) -> Dict[str, Any]:
         """Parse STT (Status Report) message with header 0x81"""
         try:
@@ -355,6 +391,10 @@ class SuntechParser:
                 idx += data_size
                 sensor_data['raw_data'] = ble_raw_data.hex()
                 
+                # Extract battery level from raw data
+                battery_level = SuntechParser.extract_battery_level(sensor_data['raw_data'])
+                sensor_data['battery_level'] = battery_level
+                
                 # BLE_SEN_MAC (6 bytes) - may be in little endian format
                 if idx + 6 > len(data):
                     break
@@ -436,10 +476,14 @@ class SuntechParser:
                         context_start = max(0, byte_pos - 20)
                         context_end = min(len(data), byte_pos + 26)
                         context_data = data[context_start:context_end]
+                        context_hex = context_data.hex().upper()
+                        
+                        # Extract battery level from context data
+                        battery_level = SuntechParser.extract_battery_level(context_hex)
                         
                         sensor_data = {
                             'data_size': 0,
-                            'raw_data': context_data.hex().upper(),
+                            'raw_data': context_hex,
                             'mac_address': mac_info['mac_formatted'],
                             'mac_address_raw': mac_hex,
                             'mac_bytes_original': mac_info['mac_bytes_original'],
@@ -447,6 +491,7 @@ class SuntechParser:
                             'is_target_mac': True,
                             'rssi': rssi_value,
                             'rssi_hex': rssi_hex,
+                            'battery_level': battery_level,
                             'found_in_raw_data': True,
                             'byte_position': byte_pos
                         }
@@ -469,9 +514,13 @@ class SuntechParser:
                             
                             if mac_info['is_target'] and mac_key not in found_macs:
                                 found_macs.add(mac_key)
+                                # Try to extract battery level from remaining data
+                                remaining_context = remaining_hex[max(0, pos - 50):min(len(remaining_hex), pos + 50)]
+                                battery_level = SuntechParser.extract_battery_level(remaining_context)
+                                
                                 sensor_data = {
                                     'data_size': 0,
-                                    'raw_data': '',
+                                    'raw_data': remaining_context if remaining_context else '',
                                     'mac_address': mac_info['mac_formatted'],
                                     'mac_address_raw': mac_hex,
                                     'mac_bytes_original': mac_info['mac_bytes_original'],
@@ -479,6 +528,7 @@ class SuntechParser:
                                     'is_target_mac': True,
                                     'rssi': 0,
                                     'rssi_hex': '0x00',
+                                    'battery_level': battery_level,
                                     'found_in_raw_data': True
                                 }
                                 sensors.append(sensor_data)

@@ -212,8 +212,9 @@ class ThreadedServer:
                                                 except Exception as e:
                                                     print(f"Error calculating frequency for {mac_address}: {e}")
                                             
-                                            # Extract RSSI and raw data from sensor
+                                            # Extract RSSI, battery level, and raw data from sensor
                                             rssi_value = sensor.get('rssi')
+                                            battery_level = sensor.get('battery_level')  # Battery level as percentage (0-100)
                                             raw_data = sensor.get('raw_data', '')
                                             
                                             # Add to beacon scan store with current ignition status, GPS coordinates, frequency, and status fields
@@ -227,7 +228,7 @@ class ThreadedServer:
                                                 'input_voltage': self.current_input_voltage,  # Input voltage in millivolts from STT messages
                                                 'ble_mac_count': ble_mac_count,  # Number of unique BLE MAC IDs in this message
                                                 'rssi': rssi_value,  # RSSI value for this BLE beacon
-                                                'ble_raw_data': raw_data  # BLE raw data for this sensor
+                                                'battery_level': battery_level  # Battery level as percentage (0-100)
                                             }
                                             self.beacon_scan_store.append(beacon_scan)
                                             
@@ -291,7 +292,7 @@ class ThreadedServer:
                 'input_voltage': beacon_scan.get('input_voltage'),
                 'ble_mac_count': beacon_scan.get('ble_mac_count'),
                 'rssi': beacon_scan.get('rssi'),
-                'ble_raw_data': beacon_scan.get('ble_raw_data')
+                'battery_level': beacon_scan.get('battery_level')
             }
             
             # Write to log file (append mode)
