@@ -28,7 +28,6 @@ class ThreadedServer:
         self.current_latitude = None  # Track most recent latitude from STT messages
         self.current_longitude = None  # Track most recent longitude from STT messages
         self.mac_previous_timestamps = {}  # Track previous timestamp for each MAC ID to calculate frequency
-        self.current_power_status = None  # Track most recent power status from STT messages
         self.current_input_voltage = None  # Track most recent input voltage from STT messages (in millivolts)
         
         # Setup logging directory
@@ -77,31 +76,19 @@ class ThreadedServer:
                                 status = parsed.get('status', {})
                                 ignition_status = status.get('ignition_status', 'OFF')
                                 
-                                # Extract power status from input_state_hex
-                                # Parse the hex value to extract individual bits
-                                input_state_hex = status.get('input_state_hex', '0x00')
-                                try:
-                                    # Remove '0x' prefix and parse as hex
-                                    in_state_value = int(input_state_hex.replace('0x', ''), 16) if '0x' in input_state_hex else int(input_state_hex, 16)
-                                    
-                                    # Bit 0: Ignition (already handled)
-                                    # Bit 1: Often power cut detection or external power
-                                    # Note: These bit meanings may vary by device model
-                                    
-                                    # Power status: Check bit 1 (external power/power cut)
-                                    power_bit = (in_state_value >> 1) & 0x01
-                                    if power_bit == 1:
-                                        self.current_power_status = 'External Power'
-                                    else:
-                                        self.current_power_status = 'Battery Power'
-                                except (ValueError, TypeError):
-                                    # If parsing fails, use defaults
-                                    pass
-                                
-                                # Extract input voltage from status
+                                # Extract input voltage from status and validate
                                 input_voltage_mv = status.get('input_voltage_mv')
                                 if input_voltage_mv is not None:
-                                    self.current_input_voltage = input_voltage_mv
+                                    # Validate voltage: should be between 10000mV (10V) and 20000mV (20V)
+                                    # Typical values are 12700mV (12.7V) or 15000mV (15.0V)
+                                    if 10000 <= input_voltage_mv <= 20000:
+                                        self.current_input_voltage = input_voltage_mv
+                                    else:
+                                        # If voltage is out of range, try alternative parsing locations
+                                        # Voltage might be in a different location in the message
+                                        # For now, set to None if invalid
+                                        self.current_input_voltage = None
+                                        print(f"Warning: Invalid voltage reading {input_voltage_mv}mV, expected 10000-20000mV")
                                 
                                 if ignition_status:
                                     # Check if ignition state has changed
@@ -114,7 +101,6 @@ class ThreadedServer:
                                             'ignition_status': ignition_status,
                                             'latitude': self.current_latitude,
                                             'longitude': self.current_longitude,
-                                            'power_status': self.current_power_status,
                                             'input_voltage': self.current_input_voltage,
                                             'is_ignition_change': True,  # Flag to identify ignition change events
                                             'previous_status': self.previous_ignition_status,
@@ -226,6 +212,10 @@ class ThreadedServer:
                                                 except Exception as e:
                                                     print(f"Error calculating frequency for {mac_address}: {e}")
                                             
+                                            # Extract RSSI and raw data from sensor
+                                            rssi_value = sensor.get('rssi')
+                                            raw_data = sensor.get('raw_data', '')
+                                            
                                             # Add to beacon scan store with current ignition status, GPS coordinates, frequency, and status fields
                                             beacon_scan = {
                                                 'timestamp': scan_timestamp,
@@ -234,9 +224,10 @@ class ThreadedServer:
                                                 'latitude': self.current_latitude,
                                                 'longitude': self.current_longitude,
                                                 'frequency_seconds': frequency_seconds,  # Time since last update for this MAC
-                                                'power_status': self.current_power_status,  # Power status from STT messages
                                                 'input_voltage': self.current_input_voltage,  # Input voltage in millivolts from STT messages
-                                                'ble_mac_count': ble_mac_count  # Number of unique BLE MAC IDs in this message
+                                                'ble_mac_count': ble_mac_count,  # Number of unique BLE MAC IDs in this message
+                                                'rssi': rssi_value,  # RSSI value for this BLE beacon
+                                                'ble_raw_data': raw_data  # BLE raw data for this sensor
                                             }
                                             self.beacon_scan_store.append(beacon_scan)
                                             
@@ -297,9 +288,10 @@ class ThreadedServer:
                 'latitude': beacon_scan.get('latitude'),
                 'longitude': beacon_scan.get('longitude'),
                 'frequency_seconds': beacon_scan.get('frequency_seconds'),
-                'power_status': beacon_scan.get('power_status'),
                 'input_voltage': beacon_scan.get('input_voltage'),
-                'ble_mac_count': beacon_scan.get('ble_mac_count')
+                'ble_mac_count': beacon_scan.get('ble_mac_count'),
+                'rssi': beacon_scan.get('rssi'),
+                'ble_raw_data': beacon_scan.get('ble_raw_data')
             }
             
             # Write to log file (append mode)

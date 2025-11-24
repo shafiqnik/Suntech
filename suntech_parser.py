@@ -127,12 +127,25 @@ class SuntechParser:
             assign_map = struct.unpack('>I', data[54:58])[0] if len(data) > 57 else 0
             
             # 6. Parse input voltage from trailing data (if available)
-            # Voltage is typically stored as 2-byte unsigned integer in millivolts starting at byte 58
+            # Voltage is typically stored as 2-byte unsigned integer in millivolts
+            # Try multiple locations: byte 58-59 (standard), or in custom headers based on assign_map
             input_voltage_mv = None
             if len(data) >= 60:  # Need at least 60 bytes for voltage (58 + 2)
                 try:
-                    # Voltage is usually at offset 58-59 as 2-byte big-endian unsigned integer (millivolts)
-                    input_voltage_mv = struct.unpack('>H', data[58:60])[0]
+                    # Try standard location at offset 58-59 as 2-byte big-endian unsigned integer (millivolts)
+                    voltage_candidate = struct.unpack('>H', data[58:60])[0]
+                    # Validate: should be between 10000mV (10V) and 20000mV (20V)
+                    # Typical values: 12700mV (12.7V) or 15000mV (15.0V)
+                    if 10000 <= voltage_candidate <= 20000:
+                        input_voltage_mv = voltage_candidate
+                    else:
+                        # Try alternative locations if standard location doesn't have valid voltage
+                        # Check if there's more data and try other 2-byte positions
+                        if len(data) >= 62:
+                            # Try offset 60-61
+                            voltage_candidate2 = struct.unpack('>H', data[60:62])[0]
+                            if 10000 <= voltage_candidate2 <= 20000:
+                                input_voltage_mv = voltage_candidate2
                 except (struct.error, IndexError):
                     pass
             
