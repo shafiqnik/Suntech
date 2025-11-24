@@ -446,7 +446,9 @@
             });
             
             // Convert to array and get most recent timestamp, ignition status, coordinates, and frequency for each MAC ID
-            const uniqueScans = Object.values(macGroups).map(group => {
+            // Initialize uniqueScans as empty array first to avoid initialization errors
+            let uniqueScans = [];
+            uniqueScans = Object.values(macGroups).map(group => {
                 // Get most recent timestamp
                 let mostRecentTimestamp = null;
                 if (group.timestamps.length > 0) {
@@ -708,7 +710,9 @@
             });
             
             // Convert to array and get most recent timestamp, ignition status, coordinates, and frequency for each MAC ID
-            const uniqueScans = Object.values(macGroups).map(group => {
+            // Initialize uniqueScans as empty array first to avoid initialization errors
+            let uniqueScans = [];
+            uniqueScans = Object.values(macGroups).map(group => {
                 let mostRecentTimestamp = null;
                 if (group.timestamps.length > 0) {
                     mostRecentTimestamp = new Date(Math.max(...group.timestamps));
