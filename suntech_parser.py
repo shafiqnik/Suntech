@@ -126,6 +126,16 @@ class SuntechParser:
             reserved1 = struct.unpack('>B', data[53:54])[0] if len(data) > 53 else 0
             assign_map = struct.unpack('>I', data[54:58])[0] if len(data) > 57 else 0
             
+            # 6. Parse input voltage from trailing data (if available)
+            # Voltage is typically stored as 2-byte unsigned integer in millivolts starting at byte 58
+            input_voltage_mv = None
+            if len(data) >= 60:  # Need at least 60 bytes for voltage (58 + 2)
+                try:
+                    # Voltage is usually at offset 58-59 as 2-byte big-endian unsigned integer (millivolts)
+                    input_voltage_mv = struct.unpack('>H', data[58:60])[0]
+                except (struct.error, IndexError):
+                    pass
+            
             # Create timestamp
             timestamp = datetime.now().isoformat()
             
@@ -166,6 +176,7 @@ class SuntechParser:
                     "message_number": msg_num,
                     "ignition_status": "ON" if (in_state & 0x01) == 1 else "OFF",  # Bit 0 of IN_STATE
                     "ignition_bit": in_state & 0x01,  # Bit 0 value (0 or 1)
+                    "input_voltage_mv": input_voltage_mv,  # Input voltage in millivolts
                 },
                 "assign_map_custom_headers": f"0x{assign_map:08X}",
                 "raw_trailing_data_length": max(0, len(data) - 58),

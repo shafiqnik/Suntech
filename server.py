@@ -28,9 +28,8 @@ class ThreadedServer:
         self.current_latitude = None  # Track most recent latitude from STT messages
         self.current_longitude = None  # Track most recent longitude from STT messages
         self.mac_previous_timestamps = {}  # Track previous timestamp for each MAC ID to calculate frequency
-        self.current_idle_state = None  # Track most recent idle state from STT messages
         self.current_power_status = None  # Track most recent power status from STT messages
-        self.current_battery_connection = None  # Track most recent battery connection state from STT messages
+        self.current_input_voltage = None  # Track most recent input voltage from STT messages (in millivolts)
         
         # Setup logging directory
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -78,18 +77,7 @@ class ThreadedServer:
                                 status = parsed.get('status', {})
                                 ignition_status = status.get('ignition_status', 'OFF')
                                 
-                                # Extract idle state from device_mode
-                                device_mode = status.get('device_mode', '')
-                                if device_mode:
-                                    # Map device mode to idle state
-                                    if device_mode == 'Driving':
-                                        self.current_idle_state = 'Driving'
-                                    elif device_mode == 'Deactivate Zone':
-                                        self.current_idle_state = 'Idle'
-                                    else:
-                                        self.current_idle_state = device_mode
-                                
-                                # Extract power status and battery connection from input_state_hex
+                                # Extract power status from input_state_hex
                                 # Parse the hex value to extract individual bits
                                 input_state_hex = status.get('input_state_hex', '0x00')
                                 try:
@@ -98,10 +86,7 @@ class ThreadedServer:
                                     
                                     # Bit 0: Ignition (already handled)
                                     # Bit 1: Often power cut detection or external power
-                                    # Bit 2: Often battery connection or backup battery
-                                    # Bit 3: Often idle detection
                                     # Note: These bit meanings may vary by device model
-                                    # For now, we'll extract common patterns:
                                     
                                     # Power status: Check bit 1 (external power/power cut)
                                     power_bit = (in_state_value >> 1) & 0x01
@@ -109,21 +94,14 @@ class ThreadedServer:
                                         self.current_power_status = 'External Power'
                                     else:
                                         self.current_power_status = 'Battery Power'
-                                    
-                                    # Battery connection: Check bit 2 (backup battery connected)
-                                    battery_bit = (in_state_value >> 2) & 0x01
-                                    if battery_bit == 1:
-                                        self.current_battery_connection = 'Connected'
-                                    else:
-                                        self.current_battery_connection = 'Disconnected'
-                                    
-                                    # If idle state not set from device_mode, check bit 3
-                                    if self.current_idle_state is None:
-                                        idle_bit = (in_state_value >> 3) & 0x01
-                                        self.current_idle_state = 'Idle' if idle_bit == 1 else 'Active'
                                 except (ValueError, TypeError):
                                     # If parsing fails, use defaults
                                     pass
+                                
+                                # Extract input voltage from status
+                                input_voltage_mv = status.get('input_voltage_mv')
+                                if input_voltage_mv is not None:
+                                    self.current_input_voltage = input_voltage_mv
                                 
                                 if ignition_status:
                                     # Check if ignition state has changed
@@ -136,9 +114,8 @@ class ThreadedServer:
                                             'ignition_status': ignition_status,
                                             'latitude': self.current_latitude,
                                             'longitude': self.current_longitude,
-                                            'idle_state': self.current_idle_state,
                                             'power_status': self.current_power_status,
-                                            'battery_connection': self.current_battery_connection,
+                                            'input_voltage': self.current_input_voltage,
                                             'is_ignition_change': True,  # Flag to identify ignition change events
                                             'previous_status': self.previous_ignition_status,
                                             'new_status': ignition_status
@@ -257,9 +234,8 @@ class ThreadedServer:
                                                 'latitude': self.current_latitude,
                                                 'longitude': self.current_longitude,
                                                 'frequency_seconds': frequency_seconds,  # Time since last update for this MAC
-                                                'idle_state': self.current_idle_state,  # Idle state from STT messages
                                                 'power_status': self.current_power_status,  # Power status from STT messages
-                                                'battery_connection': self.current_battery_connection,  # Battery connection state from STT messages
+                                                'input_voltage': self.current_input_voltage,  # Input voltage in millivolts from STT messages
                                                 'ble_mac_count': ble_mac_count  # Number of unique BLE MAC IDs in this message
                                             }
                                             self.beacon_scan_store.append(beacon_scan)
@@ -321,9 +297,8 @@ class ThreadedServer:
                 'latitude': beacon_scan.get('latitude'),
                 'longitude': beacon_scan.get('longitude'),
                 'frequency_seconds': beacon_scan.get('frequency_seconds'),
-                'idle_state': beacon_scan.get('idle_state'),
                 'power_status': beacon_scan.get('power_status'),
-                'battery_connection': beacon_scan.get('battery_connection'),
+                'input_voltage': beacon_scan.get('input_voltage'),
                 'ble_mac_count': beacon_scan.get('ble_mac_count')
             }
             
