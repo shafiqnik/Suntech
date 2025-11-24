@@ -387,11 +387,6 @@
                 return;
             }
             
-            if (uniqueScans.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="11" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
-                return;
-            }
-            
             // Separate ignition state changes from regular beacon scans
             const ignitionChanges = [];
             const regularScans = [];
