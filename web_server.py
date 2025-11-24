@@ -34,9 +34,16 @@ def make_handler(message_store: List[Dict[str, Any]], beacon_scan_store: List[Di
                 try:
                     with open(html_path, 'r', encoding='utf-8') as f:
                         html_content = f.read()
-                    self.wfile.write(html_content.encode('utf-8'))
+                    try:
+                        self.wfile.write(html_content.encode('utf-8'))
+                    except (BrokenPipeError, OSError):
+                        # Client disconnected before response was sent - ignore
+                        pass
                 except FileNotFoundError:
-                    self.wfile.write(b'<html><body><h1>Error: index.html not found</h1></body></html>')
+                    try:
+                        self.wfile.write(b'<html><body><h1>Error: index.html not found</h1></body></html>')
+                    except (BrokenPipeError, OSError):
+                        pass
             
             elif self.path == '/table.html' or self.path == '/table.index':
                 self.send_response(200)
@@ -51,9 +58,16 @@ def make_handler(message_store: List[Dict[str, Any]], beacon_scan_store: List[Di
                 try:
                     with open(html_path, 'r', encoding='utf-8') as f:
                         html_content = f.read()
-                    self.wfile.write(html_content.encode('utf-8'))
+                    try:
+                        self.wfile.write(html_content.encode('utf-8'))
+                    except (BrokenPipeError, OSError):
+                        # Client disconnected before response was sent - ignore
+                        pass
                 except FileNotFoundError:
-                    self.wfile.write(b'<html><body><h1>Error: table.html not found</h1></body></html>')
+                    try:
+                        self.wfile.write(b'<html><body><h1>Error: table.html not found</h1></body></html>')
+                    except (BrokenPipeError, OSError):
+                        pass
             
             elif self.path == '/api/messages':
                 # API endpoint to get messages as JSON
@@ -64,7 +78,11 @@ def make_handler(message_store: List[Dict[str, Any]], beacon_scan_store: List[Di
                 
                 # Get messages (thread-safe)
                 messages = list(message_store)
-                self.wfile.write(json.dumps(messages, indent=2).encode('utf-8'))
+                try:
+                    self.wfile.write(json.dumps(messages, indent=2).encode('utf-8'))
+                except (BrokenPipeError, OSError):
+                    # Client disconnected before response was sent - ignore
+                    pass
             
             elif self.path == '/api/beacon-scans':
                 # API endpoint to get beacon scans as JSON
@@ -75,12 +93,20 @@ def make_handler(message_store: List[Dict[str, Any]], beacon_scan_store: List[Di
                 
                 # Get beacon scans (thread-safe)
                 scans = list(beacon_scan_store)
-                self.wfile.write(json.dumps(scans, indent=2).encode('utf-8'))
+                try:
+                    self.wfile.write(json.dumps(scans, indent=2).encode('utf-8'))
+                except (BrokenPipeError, OSError):
+                    # Client disconnected before response was sent - ignore
+                    pass
             
             else:
                 self.send_response(404)
                 self.end_headers()
-                self.wfile.write(b'Not Found')
+                try:
+                    self.wfile.write(b'Not Found')
+                except (BrokenPipeError, OSError):
+                    # Client disconnected before response was sent - ignore
+                    pass
         
         def _handle_log_requests(self):
             """Handle log file viewing requests"""
@@ -108,7 +134,11 @@ def make_handler(message_store: List[Dict[str, Any]], beacon_scan_store: List[Di
                                     'modified': datetime.fromtimestamp(mod_time).isoformat()
                                 })
                     
-                    self.wfile.write(json.dumps(log_files, indent=2).encode('utf-8'))
+                    try:
+                        self.wfile.write(json.dumps(log_files, indent=2).encode('utf-8'))
+                    except (BrokenPipeError, OSError):
+                        # Client disconnected before response was sent - ignore
+                        pass
                 
                 elif self.path.startswith('/api/logs/view/'):
                     # View a specific log file
@@ -117,7 +147,10 @@ def make_handler(message_store: List[Dict[str, Any]], beacon_scan_store: List[Di
                     if not filename.endswith('.log') or '..' in filename or '/' in filename:
                         self.send_response(400)
                         self.end_headers()
-                        self.wfile.write(b'Invalid filename')
+                        try:
+                            self.wfile.write(b'Invalid filename')
+                        except (BrokenPipeError, OSError):
+                            pass
                         return
                     
                     filepath = os.path.join(log_directory, filename)
@@ -139,20 +172,33 @@ def make_handler(message_store: List[Dict[str, Any]], beacon_scan_store: List[Di
                                         # If not JSON, add as raw text
                                         log_entries.append({'raw': line})
                         
-                        self.wfile.write(json.dumps(log_entries, indent=2).encode('utf-8'))
+                        try:
+                            self.wfile.write(json.dumps(log_entries, indent=2).encode('utf-8'))
+                        except (BrokenPipeError, OSError):
+                            # Client disconnected before response was sent - ignore
+                            pass
                     else:
                         self.send_response(404)
                         self.end_headers()
-                        self.wfile.write(b'Log file not found')
+                        try:
+                            self.wfile.write(b'Log file not found')
+                        except (BrokenPipeError, OSError):
+                            pass
                 else:
                     self.send_response(404)
                     self.end_headers()
-                    self.wfile.write(b'Not Found')
+                    try:
+                        self.wfile.write(b'Not Found')
+                    except (BrokenPipeError, OSError):
+                        pass
             except Exception as e:
                 self.send_response(500)
                 self.send_header('Content-type', 'text/plain')
                 self.end_headers()
-                self.wfile.write(f'Error: {str(e)}'.encode('utf-8'))
+                try:
+                    self.wfile.write(f'Error: {str(e)}'.encode('utf-8'))
+                except (BrokenPipeError, OSError):
+                    pass
         
         def log_message(self, format, *args):
             """Override to reduce logging noise"""

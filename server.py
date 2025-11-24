@@ -27,6 +27,10 @@ class ThreadedServer:
         self.previous_ignition_status = None  # Track previous ignition status to detect changes
         self.current_latitude = None  # Track most recent latitude from STT messages
         self.current_longitude = None  # Track most recent longitude from STT messages
+        self.mac_previous_timestamps = {}  # Track previous timestamp for each MAC ID to calculate frequency
+        self.current_idle_state = None  # Track most recent idle state from STT messages
+        self.current_power_status = None  # Track most recent power status from STT messages
+        self.current_battery_connection = None  # Track most recent battery connection state from STT messages
         
         # Setup logging directory
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -68,11 +72,59 @@ class ThreadedServer:
                             if len(self.message_store) > 1000:
                                 self.message_store.pop(0)
                             
-                            # Update ignition status, latitude, and longitude from STT messages
+                            # Update ignition status, latitude, longitude, and other status fields from STT messages
                             report_type = parsed.get('report_type', 'Unknown')
                             if 'STT' in report_type or 'Status Report' in report_type:
                                 status = parsed.get('status', {})
                                 ignition_status = status.get('ignition_status', 'OFF')
+                                
+                                # Extract idle state from device_mode
+                                device_mode = status.get('device_mode', '')
+                                if device_mode:
+                                    # Map device mode to idle state
+                                    if device_mode == 'Driving':
+                                        self.current_idle_state = 'Driving'
+                                    elif device_mode == 'Deactivate Zone':
+                                        self.current_idle_state = 'Idle'
+                                    else:
+                                        self.current_idle_state = device_mode
+                                
+                                # Extract power status and battery connection from input_state_hex
+                                # Parse the hex value to extract individual bits
+                                input_state_hex = status.get('input_state_hex', '0x00')
+                                try:
+                                    # Remove '0x' prefix and parse as hex
+                                    in_state_value = int(input_state_hex.replace('0x', ''), 16) if '0x' in input_state_hex else int(input_state_hex, 16)
+                                    
+                                    # Bit 0: Ignition (already handled)
+                                    # Bit 1: Often power cut detection or external power
+                                    # Bit 2: Often battery connection or backup battery
+                                    # Bit 3: Often idle detection
+                                    # Note: These bit meanings may vary by device model
+                                    # For now, we'll extract common patterns:
+                                    
+                                    # Power status: Check bit 1 (external power/power cut)
+                                    power_bit = (in_state_value >> 1) & 0x01
+                                    if power_bit == 1:
+                                        self.current_power_status = 'External Power'
+                                    else:
+                                        self.current_power_status = 'Battery Power'
+                                    
+                                    # Battery connection: Check bit 2 (backup battery connected)
+                                    battery_bit = (in_state_value >> 2) & 0x01
+                                    if battery_bit == 1:
+                                        self.current_battery_connection = 'Connected'
+                                    else:
+                                        self.current_battery_connection = 'Disconnected'
+                                    
+                                    # If idle state not set from device_mode, check bit 3
+                                    if self.current_idle_state is None:
+                                        idle_bit = (in_state_value >> 3) & 0x01
+                                        self.current_idle_state = 'Idle' if idle_bit == 1 else 'Active'
+                                except (ValueError, TypeError):
+                                    # If parsing fails, use defaults
+                                    pass
+                                
                                 if ignition_status:
                                     # Check if ignition state has changed
                                     if self.previous_ignition_status is not None and self.previous_ignition_status != ignition_status:
@@ -84,6 +136,9 @@ class ThreadedServer:
                                             'ignition_status': ignition_status,
                                             'latitude': self.current_latitude,
                                             'longitude': self.current_longitude,
+                                            'idle_state': self.current_idle_state,
+                                            'power_status': self.current_power_status,
+                                            'battery_connection': self.current_battery_connection,
                                             'is_ignition_change': True,  # Flag to identify ignition change events
                                             'previous_status': self.previous_ignition_status,
                                             'new_status': ignition_status
@@ -121,6 +176,15 @@ class ThreadedServer:
                                 sensors = parsed.get('sensors', [])
                                 scan_timestamp = datetime.now().isoformat()
                                 
+                                # Count total number of BLE MAC IDs in this message
+                                # Count unique MAC addresses
+                                unique_mac_ids = set()
+                                for sensor in sensors:
+                                    mac_address = sensor.get('mac_address') or sensor.get('mac_address_raw', 'N/A')
+                                    if mac_address and mac_address != 'N/A':
+                                        unique_mac_ids.add(mac_address)
+                                ble_mac_count = len(unique_mac_ids)
+                                
                                 # Extract ALL beacons starting with AC233 or C300 (not just target ones)
                                 # Also include all sensors to ensure nothing is missed
                                 for sensor in sensors:
@@ -134,15 +198,74 @@ class ThreadedServer:
                                         
                                         # Store if it matches our criteria OR if it was marked as target
                                         if is_target or sensor.get('is_target_mac', False):
-                                            # Add to beacon scan store with current ignition status and GPS coordinates
+                                            # Calculate frequency (time difference from previous update)
+                                            frequency_seconds = None
+                                            previous_timestamp = self.mac_previous_timestamps.get(mac_address)
+                                            
+                                            if previous_timestamp:
+                                                try:
+                                                    # Parse timestamps and calculate difference
+                                                    # Handle ISO format with or without timezone
+                                                    def parse_iso_timestamp(ts_str):
+                                                        # Remove 'Z' and replace with +00:00 for timezone
+                                                        ts_clean = ts_str.replace('Z', '+00:00')
+                                                        # Try parsing with fromisoformat
+                                                        try:
+                                                            dt = datetime.fromisoformat(ts_clean)
+                                                        except (ValueError, AttributeError):
+                                                            # Fallback: parse without timezone info
+                                                            # Remove timezone offset if present
+                                                            if '+' in ts_clean:
+                                                                ts_no_tz = ts_clean.split('+')[0]
+                                                            elif len(ts_clean) > 19 and ts_clean[-6] in ['+', '-']:
+                                                                ts_no_tz = ts_clean[:-6]
+                                                            else:
+                                                                ts_no_tz = ts_clean
+                                                            # Try different formats
+                                                            for fmt in ['%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S']:
+                                                                try:
+                                                                    # Remove microseconds if format doesn't include them
+                                                                    if '.%f' in fmt:
+                                                                        dt = datetime.strptime(ts_no_tz, fmt)
+                                                                    else:
+                                                                        dt = datetime.strptime(ts_no_tz.split('.')[0], fmt)
+                                                                    break
+                                                                except ValueError:
+                                                                    continue
+                                                            else:
+                                                                raise ValueError(f"Unable to parse timestamp: {ts_str}")
+                                                        # Make timezone-aware if naive (use local timezone)
+                                                        if dt.tzinfo is None:
+                                                            # Use local timezone
+                                                            local_tz = datetime.now().astimezone().tzinfo
+                                                            dt = dt.replace(tzinfo=local_tz)
+                                                        return dt
+                                                    
+                                                    prev_dt = parse_iso_timestamp(previous_timestamp)
+                                                    curr_dt = parse_iso_timestamp(scan_timestamp)
+                                                    time_diff = (curr_dt - prev_dt).total_seconds()
+                                                    if time_diff > 0:  # Only set if positive (valid update)
+                                                        frequency_seconds = time_diff
+                                                except Exception as e:
+                                                    print(f"Error calculating frequency for {mac_address}: {e}")
+                                            
+                                            # Add to beacon scan store with current ignition status, GPS coordinates, frequency, and status fields
                                             beacon_scan = {
                                                 'timestamp': scan_timestamp,
                                                 'mac_id': mac_address,
                                                 'ignition_status': self.current_ignition_status,
                                                 'latitude': self.current_latitude,
-                                                'longitude': self.current_longitude
+                                                'longitude': self.current_longitude,
+                                                'frequency_seconds': frequency_seconds,  # Time since last update for this MAC
+                                                'idle_state': self.current_idle_state,  # Idle state from STT messages
+                                                'power_status': self.current_power_status,  # Power status from STT messages
+                                                'battery_connection': self.current_battery_connection,  # Battery connection state from STT messages
+                                                'ble_mac_count': ble_mac_count  # Number of unique BLE MAC IDs in this message
                                             }
                                             self.beacon_scan_store.append(beacon_scan)
+                                            
+                                            # Update previous timestamp for this MAC ID
+                                            self.mac_previous_timestamps[mac_address] = scan_timestamp
                                             
                                             # Log the beacon scan to file
                                             self._log_beacon_scan(beacon_scan)
@@ -196,7 +319,12 @@ class ThreadedServer:
                 'mac_id': beacon_scan.get('mac_id', ''),
                 'ignition_status': beacon_scan.get('ignition_status', 'N/A'),
                 'latitude': beacon_scan.get('latitude'),
-                'longitude': beacon_scan.get('longitude')
+                'longitude': beacon_scan.get('longitude'),
+                'frequency_seconds': beacon_scan.get('frequency_seconds'),
+                'idle_state': beacon_scan.get('idle_state'),
+                'power_status': beacon_scan.get('power_status'),
+                'battery_connection': beacon_scan.get('battery_connection'),
+                'ble_mac_count': beacon_scan.get('ble_mac_count')
             }
             
             # Write to log file (append mode)

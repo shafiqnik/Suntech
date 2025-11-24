@@ -275,7 +275,12 @@
                         <th>Most Recent Timestamp</th>
                         <th>BLE Beacon MAC ID</th>
                         <th>Count</th>
+                        <th>Frequency</th>
                         <th>Ignition Status</th>
+                        <th>Idle State</th>
+                        <th>Power Status</th>
+                        <th>Battery Connection</th>
+                        <th>BLE MAC Count</th>
                         <th>Latitude</th>
                         <th>Longitude</th>
                     </tr>
@@ -352,6 +357,23 @@
             }
         }
         
+        function formatFrequency(seconds) {
+            if (seconds === null || seconds === undefined) return 'N/A';
+            if (seconds < 1) {
+                return `${(seconds * 1000).toFixed(0)}ms`;
+            } else if (seconds < 60) {
+                return `${seconds.toFixed(1)}s`;
+            } else if (seconds < 3600) {
+                const mins = Math.floor(seconds / 60);
+                const secs = (seconds % 60).toFixed(0);
+                return `${mins}m ${secs}s`;
+            } else {
+                const hours = Math.floor(seconds / 3600);
+                const mins = Math.floor((seconds % 3600) / 60);
+                return `${hours}h ${mins}m`;
+            }
+        }
+        
         function renderTable() {
             const tbody = document.getElementById('table-body');
             
@@ -361,7 +383,7 @@
             }
             
             if (beaconScans.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="11" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
                 return;
             }
             
@@ -423,7 +445,7 @@
                 }
             });
             
-            // Convert to array and get most recent timestamp, ignition status, and coordinates for each MAC ID
+            // Convert to array and get most recent timestamp, ignition status, coordinates, and frequency for each MAC ID
             const uniqueScans = Object.values(macGroups).map(group => {
                 // Get most recent timestamp
                 let mostRecentTimestamp = null;
@@ -449,11 +471,54 @@
                     mostRecentLon = group.coordinates[0].longitude;
                 }
                 
+                // Get most recent frequency (from the scan with the most recent timestamp)
+                let mostRecentFrequency = null;
+                // Find the scan with the most recent timestamp that has frequency data
+                const scansWithFrequency = regularScans.filter(scan => 
+                    scan.mac_id === group.macId && 
+                    scan.frequency_seconds !== null && 
+                    scan.frequency_seconds !== undefined
+                );
+                if (scansWithFrequency.length > 0) {
+                    // Sort by timestamp descending and get the most recent frequency
+                    scansWithFrequency.sort((a, b) => {
+                        const timeA = a.timestamp ? new Date(a.timestamp) : new Date(0);
+                        const timeB = b.timestamp ? new Date(b.timestamp) : new Date(0);
+                        return timeB - timeA;
+                    });
+                    mostRecentFrequency = scansWithFrequency[0].frequency_seconds;
+                }
+                
+                // Get most recent idle state, power status, battery connection, and BLE MAC count
+                let mostRecentIdleState = null;
+                let mostRecentPowerStatus = null;
+                let mostRecentBatteryConnection = null;
+                let mostRecentBleMacCount = null;
+                const scansWithStatus = regularScans.filter(scan => scan.mac_id === group.macId);
+                if (scansWithStatus.length > 0) {
+                    // Sort by timestamp descending and get the most recent status fields
+                    scansWithStatus.sort((a, b) => {
+                        const timeA = a.timestamp ? new Date(a.timestamp) : new Date(0);
+                        const timeB = b.timestamp ? new Date(b.timestamp) : new Date(0);
+                        return timeB - timeA;
+                    });
+                    const mostRecentScan = scansWithStatus[0];
+                    mostRecentIdleState = mostRecentScan.idle_state || null;
+                    mostRecentPowerStatus = mostRecentScan.power_status || null;
+                    mostRecentBatteryConnection = mostRecentScan.battery_connection || null;
+                    mostRecentBleMacCount = mostRecentScan.ble_mac_count !== null && mostRecentScan.ble_mac_count !== undefined ? mostRecentScan.ble_mac_count : null;
+                }
+                
                 return {
                     macId: group.macId,
                     count: group.count,
                     mostRecentTimestamp: mostRecentTimestamp,
+                    frequency: mostRecentFrequency,
                     ignitionStatus: mostRecentIgnitionStatus,
+                    idleState: mostRecentIdleState,
+                    powerStatus: mostRecentPowerStatus,
+                    batteryConnection: mostRecentBatteryConnection,
+                    bleMacCount: mostRecentBleMacCount,
                     latitude: mostRecentLat,
                     longitude: mostRecentLon,
                     isIgnitionChange: false
@@ -471,6 +536,10 @@
                     count: 1,
                     mostRecentTimestamp: changeTimestamp,
                     ignitionStatus: newStatus,
+                    idleState: change.idle_state || null,
+                    powerStatus: change.power_status || null,
+                    batteryConnection: change.battery_connection || null,
+                    bleMacCount: null,
                     latitude: change.latitude || null,
                     longitude: change.longitude || null,
                     isIgnitionChange: true
@@ -486,7 +555,7 @@
             });
             
             if (uniqueScans.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="11" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
                 return;
             }
             
@@ -512,12 +581,28 @@
                     '<span style="color: #856404;">—</span>' : 
                     scan.count;
                 
+                const frequencyDisplay = scan.isIgnitionChange ? 
+                    '<span style="color: #856404;">—</span>' : 
+                    formatFrequency(scan.frequency);
+                
+                const idleStateDisplay = scan.idleState || 'N/A';
+                const powerStatusDisplay = scan.powerStatus || 'N/A';
+                const batteryConnectionDisplay = scan.batteryConnection || 'N/A';
+                const bleMacCountDisplay = scan.isIgnitionChange ? 
+                    '<span style="color: #856404;">—</span>' : 
+                    (scan.bleMacCount !== null && scan.bleMacCount !== undefined ? scan.bleMacCount : 'N/A');
+                
                 return `
                     <tr ${rowClass}>
                         <td class="timestamp">${scan.mostRecentTimestamp ? formatTimestamp(scan.mostRecentTimestamp.toISOString()) : 'N/A'}</td>
                         <td>${macDisplay}</td>
                         <td class="count">${countDisplay}</td>
+                        <td class="count">${frequencyDisplay}</td>
                         <td class="ignition-status ${ignitionClass}">${ignitionDisplay}</td>
+                        <td class="ignition-status">${idleStateDisplay}</td>
+                        <td class="ignition-status">${powerStatusDisplay}</td>
+                        <td class="ignition-status">${batteryConnectionDisplay}</td>
+                        <td class="count">${bleMacCountDisplay}</td>
                         <td class="coordinates">${latDisplay}</td>
                         <td class="coordinates">${lonDisplay}</td>
                     </tr>
@@ -599,7 +684,7 @@
                 }
             });
             
-            // Convert to array and get most recent timestamp, ignition status, and coordinates for each MAC ID
+            // Convert to array and get most recent timestamp, ignition status, coordinates, and frequency for each MAC ID
             const uniqueScans = Object.values(macGroups).map(group => {
                 let mostRecentTimestamp = null;
                 if (group.timestamps.length > 0) {
@@ -624,11 +709,51 @@
                     mostRecentLon = group.coordinates[0].longitude;
                 }
                 
+                // Get most recent frequency (from the scan with the most recent timestamp)
+                let mostRecentFrequency = null;
+                const scansWithFrequency = regularScans.filter(scan => 
+                    scan.mac_id === group.macId && 
+                    scan.frequency_seconds !== null && 
+                    scan.frequency_seconds !== undefined
+                );
+                if (scansWithFrequency.length > 0) {
+                    scansWithFrequency.sort((a, b) => {
+                        const timeA = a.timestamp ? new Date(a.timestamp) : new Date(0);
+                        const timeB = b.timestamp ? new Date(b.timestamp) : new Date(0);
+                        return timeB - timeA;
+                    });
+                    mostRecentFrequency = scansWithFrequency[0].frequency_seconds;
+                }
+                
+                // Get most recent idle state, power status, battery connection, and BLE MAC count
+                let mostRecentIdleState = null;
+                let mostRecentPowerStatus = null;
+                let mostRecentBatteryConnection = null;
+                let mostRecentBleMacCount = null;
+                const scansWithStatus = regularScans.filter(scan => scan.mac_id === group.macId);
+                if (scansWithStatus.length > 0) {
+                    scansWithStatus.sort((a, b) => {
+                        const timeA = a.timestamp ? new Date(a.timestamp) : new Date(0);
+                        const timeB = b.timestamp ? new Date(b.timestamp) : new Date(0);
+                        return timeB - timeA;
+                    });
+                    const mostRecentScan = scansWithStatus[0];
+                    mostRecentIdleState = mostRecentScan.idle_state || null;
+                    mostRecentPowerStatus = mostRecentScan.power_status || null;
+                    mostRecentBatteryConnection = mostRecentScan.battery_connection || null;
+                    mostRecentBleMacCount = mostRecentScan.ble_mac_count !== null && mostRecentScan.ble_mac_count !== undefined ? mostRecentScan.ble_mac_count : null;
+                }
+                
                 return {
                     macId: group.macId,
                     count: group.count,
                     mostRecentTimestamp: mostRecentTimestamp,
+                    frequency: mostRecentFrequency,
                     ignitionStatus: mostRecentIgnitionStatus,
+                    idleState: mostRecentIdleState,
+                    powerStatus: mostRecentPowerStatus,
+                    batteryConnection: mostRecentBatteryConnection,
+                    bleMacCount: mostRecentBleMacCount,
                     latitude: mostRecentLat,
                     longitude: mostRecentLon
                 };
@@ -645,6 +770,10 @@
                     count: 1,
                     mostRecentTimestamp: changeTimestamp,
                     ignitionStatus: newStatus,
+                    idleState: change.idle_state || null,
+                    powerStatus: change.power_status || null,
+                    batteryConnection: change.battery_connection || null,
+                    bleMacCount: null,
                     latitude: change.latitude || null,
                     longitude: change.longitude || null
                 });
@@ -659,7 +788,7 @@
             });
             
             // CSV header
-            const headers = ['Most Recent Timestamp', 'BLE Beacon MAC ID', 'Count', 'Ignition Status', 'Latitude', 'Longitude'];
+            const headers = ['Most Recent Timestamp', 'BLE Beacon MAC ID', 'Count', 'Frequency (seconds)', 'Ignition Status', 'Idle State', 'Power Status', 'Battery Connection', 'BLE MAC Count', 'Latitude', 'Longitude'];
             
             // Convert data to CSV rows
             const csvRows = [headers.join(',')];
@@ -669,7 +798,12 @@
                 const timestamp = scan.mostRecentTimestamp ? formatTimestamp(scan.mostRecentTimestamp.toISOString()) : 'N/A';
                 const macId = scan.macId;
                 const count = scan.count;
+                const frequency = scan.frequency !== null && scan.frequency !== undefined ? scan.frequency.toFixed(2) : 'N/A';
                 const ignitionStatus = scan.ignitionStatus || 'N/A';
+                const idleState = scan.idleState || 'N/A';
+                const powerStatus = scan.powerStatus || 'N/A';
+                const batteryConnection = scan.batteryConnection || 'N/A';
+                const bleMacCount = scan.bleMacCount !== null && scan.bleMacCount !== undefined ? scan.bleMacCount : 'N/A';
                 const lat = scan.latitude !== null && scan.latitude !== undefined ? scan.latitude.toFixed(6) : 'N/A';
                 const lon = scan.longitude !== null && scan.longitude !== undefined ? scan.longitude.toFixed(6) : 'N/A';
                 // Escape commas and quotes in CSV
@@ -677,7 +811,12 @@
                     `"${timestamp.replace(/"/g, '""')}"`,
                     `"${macId.replace(/"/g, '""')}"`,
                     count,
+                    frequency,
                     `"${ignitionStatus.replace(/"/g, '""')}"`,
+                    `"${idleState.replace(/"/g, '""')}"`,
+                    `"${powerStatus.replace(/"/g, '""')}"`,
+                    `"${batteryConnection.replace(/"/g, '""')}"`,
+                    bleMacCount,
                     lat,
                     lon
                 ];
