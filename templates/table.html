@@ -313,18 +313,32 @@
         async function fetchBeaconScans() {
             try {
                 const response = await fetch('/api/beacon-scans');
-                const data = await response.json();
-                beaconScans = data;
-                // Debug: log first scan to verify data structure
-                if (beaconScans.length > 0) {
-                    console.log('Sample beacon scan:', beaconScans[0]);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
+                const data = await response.json();
+                beaconScans = Array.isArray(data) ? data : [];
+                
+                // Debug: log data to help diagnose issues
+                console.log('DEBUG: Fetched beacon scans:', beaconScans.length);
+                if (beaconScans.length > 0) {
+                    console.log('DEBUG: Sample beacon scan:', beaconScans[0]);
+                    console.log('DEBUG: Sample beacon scan keys:', Object.keys(beaconScans[0]));
+                } else {
+                    console.log('DEBUG: No beacon scans in response');
+                }
+                
                 updateStatus('connected', `Connected - ${beaconScans.length} scan(s) recorded`);
                 updateStats();
                 renderTable();
             } catch (error) {
                 updateStatus('error', 'Error fetching beacon scans: ' + error.message);
                 console.error('Error fetching beacon scans:', error);
+                // Show error in table
+                const tbody = document.getElementById('table-body');
+                if (tbody) {
+                    tbody.innerHTML = `<tr><td colspan="11" class="no-scans" style="color: #dc3545;">Error loading beacon scans: ${error.message}</td></tr>`;
+                }
             }
         }
         
@@ -377,13 +391,21 @@
         function renderTable() {
             const tbody = document.getElementById('table-body');
             
-            console.log('Rendering table with', beaconScans.length, 'scans');
+            console.log('DEBUG: Rendering table with', beaconScans.length, 'scans');
             if (beaconScans.length > 0) {
-                console.log('First scan data:', beaconScans[0]);
+                console.log('DEBUG: First scan data:', beaconScans[0]);
+                console.log('DEBUG: First scan mac_id:', beaconScans[0].mac_id);
             }
             
-            if (beaconScans.length === 0) {
+            if (!beaconScans || beaconScans.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="11" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
+                return;
+            }
+            
+            // Ensure beaconScans is an array
+            if (!Array.isArray(beaconScans)) {
+                console.error('DEBUG: beaconScans is not an array:', typeof beaconScans);
+                tbody.innerHTML = '<tr><td colspan="11" class="no-scans" style="color: #dc3545;">Error: Invalid data format</td></tr>';
                 return;
             }
             
@@ -391,15 +413,29 @@
             const ignitionChanges = [];
             const regularScans = [];
             
-            beaconScans.forEach(scan => {
-                if (scan.is_ignition_change || (scan.mac_id && scan.mac_id.startsWith('IGNITION_STATE_CHANGE_'))) {
-                    // This is an ignition state change event
-                    ignitionChanges.push(scan);
-                } else {
-                    // Regular beacon scan
-                    regularScans.push(scan);
+            beaconScans.forEach((scan, index) => {
+                try {
+                    if (scan.is_ignition_change || (scan.mac_id && scan.mac_id.startsWith('IGNITION_STATE_CHANGE_'))) {
+                        // This is an ignition state change event
+                        ignitionChanges.push(scan);
+                    } else {
+                        // Regular beacon scan - ensure it has a mac_id
+                        if (scan.mac_id || scan.mac_address) {
+                            // Use mac_id if available, otherwise use mac_address
+                            if (!scan.mac_id && scan.mac_address) {
+                                scan.mac_id = scan.mac_address;
+                            }
+                            regularScans.push(scan);
+                        } else {
+                            console.warn('DEBUG: Skipping scan without mac_id or mac_address:', scan);
+                        }
+                    }
+                } catch (error) {
+                    console.error(`DEBUG: Error processing scan at index ${index}:`, error, scan);
                 }
             });
+            
+            console.log('DEBUG: Regular scans:', regularScans.length, 'Ignition changes:', ignitionChanges.length);
             
             // Group regular scans by MAC ID and count duplicates
             const macGroups = {};
@@ -557,6 +593,30 @@
             });
             
             if (uniqueScans.length === 0) {
+                // If grouping failed but we have scans, try to display them directly
+                if (regularScans.length > 0) {
+                    console.log('DEBUG: Grouping resulted in 0 unique scans, displaying raw scans instead');
+                    tbody.innerHTML = regularScans.slice(0, 100).map((scan, index) => {
+                        const macId = scan.mac_id || scan.mac_address || 'N/A';
+                        const timestamp = scan.timestamp || 'N/A';
+                        return `
+                            <tr>
+                                <td class="timestamp">${formatTimestamp(timestamp)}</td>
+                                <td><span class="mac-id">${macId}</span></td>
+                                <td class="count">1</td>
+                                <td class="count">${formatFrequency(scan.frequency_seconds)}</td>
+                                <td class="ignition-status">${scan.ignition_status || 'N/A'}</td>
+                                <td class="ignition-status">${scan.input_voltage ? (scan.input_voltage / 1000.0).toFixed(2) + 'V' : 'N/A'}</td>
+                                <td class="count">${scan.ble_mac_count || 'N/A'}</td>
+                                <td class="count">${scan.rssi !== null && scan.rssi !== undefined ? scan.rssi + ' dBm' : 'N/A'}</td>
+                                <td class="count">${scan.battery_level !== null && scan.battery_level !== undefined ? scan.battery_level + '%' : 'N/A'}</td>
+                                <td class="coordinates">${scan.latitude !== null && scan.latitude !== undefined ? parseFloat(scan.latitude).toFixed(6) : 'N/A'}</td>
+                                <td class="coordinates">${scan.longitude !== null && scan.longitude !== undefined ? parseFloat(scan.longitude).toFixed(6) : 'N/A'}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                    return;
+                }
                 tbody.innerHTML = '<tr><td colspan="11" class="no-scans">No beacon scans recorded yet. Waiting for BLE scans...</td></tr>';
                 return;
             }

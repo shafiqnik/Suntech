@@ -139,6 +139,11 @@ class ThreadedServer:
                                 sensors = parsed.get('sensors', [])
                                 scan_timestamp = datetime.now().isoformat()
                                 
+                                # Debug: Print sensor info
+                                if sensors:
+                                    print(f"DEBUG: First sensor: {sensors[0]}")
+                                    print(f"DEBUG: Processing {len(sensors)} sensors for beacon storage")
+                                
                                 # Count total number of BLE MAC IDs in this message
                                 # Count unique MAC addresses
                                 unique_mac_ids = set()
@@ -147,6 +152,12 @@ class ThreadedServer:
                                     if mac_address and mac_address != 'N/A':
                                         unique_mac_ids.add(mac_address)
                                 ble_mac_count = len(unique_mac_ids)
+                                
+                                # Debug: Print sensor processing info
+                                for sensor in sensors:
+                                    mac_address = sensor.get('mac_address') or sensor.get('mac_address_raw', 'N/A')
+                                    if mac_address and mac_address != 'N/A':
+                                        print(f"DEBUG: Sensor MAC: {mac_address}, sensor keys: {list(sensor.keys())}")
                                 
                                 # Extract ALL beacons starting with AC233 or C300 (not just target ones)
                                 # Also include all sensors to ensure nothing is missed
@@ -232,6 +243,9 @@ class ThreadedServer:
                                             }
                                             self.beacon_scan_store.append(beacon_scan)
                                             
+                                            # Debug: Print beacon storage info
+                                            print(f"DEBUG: Stored beacon scan #{len(self.beacon_scan_store)}: MAC={mac_address}, timestamp={scan_timestamp}")
+                                            
                                             # Update previous timestamp for this MAC ID
                                             self.mac_previous_timestamps[mac_address] = scan_timestamp
                                             
@@ -241,6 +255,10 @@ class ThreadedServer:
                                             # Keep only last 10000 scans
                                             if len(self.beacon_scan_store) > 10000:
                                                 self.beacon_scan_store.pop(0)
+                                
+                                # Debug: Print summary after processing all sensors
+                                stored_count = len([s for s in sensors if (s.get('mac_address') or s.get('mac_address_raw')) and (s.get('mac_address', '').upper().replace(':', '').startswith('AC233') or s.get('mac_address', '').upper().replace(':', '').startswith('C300') or s.get('is_target_mac', False))])
+                                print(f"DEBUG: Total beacons stored from this BDA message: {stored_count}, Total in store: {len(self.beacon_scan_store)}")
                         
                         print(f"Parsed message type: {report_type}")
                         

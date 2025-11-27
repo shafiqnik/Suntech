@@ -93,6 +93,10 @@ def make_handler(message_store: List[Dict[str, Any]], beacon_scan_store: List[Di
                 
                 # Get beacon scans (thread-safe)
                 scans = list(beacon_scan_store)
+                # Debug: Print API response info
+                print(f"DEBUG: API /api/beacon-scans called, returning {len(scans)} scans")
+                if len(scans) > 0:
+                    print(f"DEBUG: First scan in API response: {scans[0]}")
                 try:
                     self.wfile.write(json.dumps(scans, indent=2).encode('utf-8'))
                 except (BrokenPipeError, OSError):
